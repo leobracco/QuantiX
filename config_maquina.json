@@ -1,0 +1,60 @@
+{
+  "motores": [
+    {
+      "id": 1,
+      "secciones": [
+        {
+          "id": 0,
+          "tipo": "Semilla"
+        }
+      ],
+      "producto": "Motor 1",
+      "p": 1.1,
+      "i": 0.1,
+      "d": 0,
+      "active": false
+    },
+    {
+      "id": 2,
+      "secciones": [
+        {
+          "id": 0,
+          "tipo": "Fertilizante"
+        }
+      ],
+      "producto": "Motor 2",
+      "p": 1,
+      "i": 0.1,
+      "d": 0,
+      "active": false
+    },
+    {
+      "id": 3,
+      "secciones": [
+        {
+          "id": 1,
+          "tipo": "Semilla"
+        }
+      ],
+      "producto": "Motor 3",
+      "p": 1,
+      "i": 0.1,
+      "d": 0,
+      "active": false
+    },
+    {
+      "id": 4,
+      "secciones": [
+        {
+          "id": 1,
+          "tipo": "Fertilizante"
+        }
+      ],
+      "producto": "Motor 4",
+      "p": 1,
+      "i": 0.1,
+      "d": 0,
+      "active": false
+    }
+  ]
+}

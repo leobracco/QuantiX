@@ -1,0 +1,14 @@
+{
+  "tanzi_48": {
+    "nombre": "Tanzi 48 Cuerpos",
+    "motoresPorSeccion": 2,
+    "offsetGps": 4.5,
+    "distribucion": ["Semilla", "Fertilizante"]
+  },
+  "tanzi_96": {
+    "nombre": "Tanzi 96 Cuerpos",
+    "motoresPorSeccion": 3,
+    "offsetGps": 5.2,
+    "distribucion": ["Semilla", "Ferti Línea", "Ferti Lateral"]
+  }
+}

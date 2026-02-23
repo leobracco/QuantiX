@@ -1,0 +1,114 @@
+/* PALETA DE COLORES DARK MATERIAL */
+:root {
+    --bg-body: #1a2035;
+    --bg-sidenav: #1f283e;
+    --bg-card: #202940;
+    --text-main: #ffffff;
+    --text-muted: #8b92a9;
+    --primary: #e91e63;
+    --success: #4caf50;
+    --info: #1a73e8;
+    --warning: #fb8c00;
+    --danger: #f44335;
+}
+
+body {
+    background-color: var(--bg-body);
+    font-family: 'Roboto', sans-serif;
+    color: var(--text-main);
+}
+
+/* CARDS */
+.card {
+    background-color: var(--bg-card);
+    border: 0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-radius: 0.75rem;
+}
+
+.bg-gradient-dark {
+    background-image: linear-gradient(195deg, #42424a 0%, #191919 100%);
+}
+
+.bg-gradient-success {
+    background-image: linear-gradient(195deg, #66BB6A 0%, #43A047 100%);
+}
+
+.bg-gradient-info {
+    background-image: linear-gradient(195deg, #49a3f1 0%, #1A73E8 100%);
+}
+
+.bg-gradient-danger {
+    background-image: linear-gradient(195deg, #EF5350 0%, #E53935 100%);
+}
+
+/* SIDENAV */
+.sidenav {
+    z-index: 999;
+}
+
+/* MOTOR CARD ESPECÍFICO */
+.motor-card {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+/* ESTADO MINIMIZADO */
+.motor-card.minimized .card-body-details {
+    display: none;
+}
+
+.motor-card.minimized {
+    border-left: 5px solid var(--success); /* Indicador visual rápido */
+}
+
+/* Icono flotante */
+.icon-shape {
+    width: 48px;
+    height: 48px;
+    background-position: center;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: -24px;
+    box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.14), 0 7px 10px -5px rgba(64, 64, 64, 0.4);
+}
+
+/* TEXTOS */
+.text-xs { font-size: 0.75rem !important; }
+.text-sm { font-size: 0.875rem !important; }
+.font-weight-bolder { font-weight: 700 !important; }
+
+/* INPUTS ESTILO MATERIAL */
+.form-control {
+    background-color: #1a2035 !important;
+    border: 1px solid #42424a;
+    color: white !important;
+}
+.form-control:focus {
+    border-color: var(--info);
+    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+/* SCROLLBAR CUSTOM */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #1a2035; 
+}
+::-webkit-scrollbar-thumb {
+    background: #42424a; 
+    border-radius: 3px;
+}
+.t-arrow {
+    width: 0; height: 0; 
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 12px solid #f1c40f; /* Flecha Amarilla */
+    position: absolute;
+    top: -15px;
+    transition: transform 0.2s ease;
+}
+.tractor-wrapper { position: relative; width: 20px; height: 20px; }

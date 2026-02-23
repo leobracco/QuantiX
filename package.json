@@ -1,0 +1,20 @@
+{
+  "dependencies": {
+    "@turf/turf": "^7.3.2",
+    "axios": "^1.13.4",
+    "express": "^5.2.1",
+    "mqtt": "^5.14.1",
+    "multer": "^2.0.2",
+    "shapefile": "^0.6.6",
+    "turf": "^3.0.14"
+  },
+  "scripts": {
+    "server": "nodemon server.js",
+    "bridge": "nodemon bridge_aog.js",
+    "dev": "concurrently --names \"SERVER,BRIDGE\" --prefix-colors \"blue,green\" \"npm run server\" \"npm run bridge\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.11"
+  }
+}

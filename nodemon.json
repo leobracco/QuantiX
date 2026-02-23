@@ -1,0 +1,8 @@
+{
+  "ignore": [
+    "data/*",
+    "uploads/*",
+    "public/*"
+  ],
+  "delay": "1000"
+}

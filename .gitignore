@@ -1,0 +1,56 @@
+# ==========================================
+# DEPENDENCIAS
+# ==========================================
+node_modules/
+
+# ==========================================
+# VARIABLES DE ENTORNO Y SECRETOS (¡CRÍTICO!)
+# ==========================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# LOGS Y DEBUG
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==========================================
+# ARCHIVOS DEL SISTEMA OPERATIVO
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ==========================================
+# EDITORES DE CÓDIGO (VS Code, IntelliJ, etc)
+# ==========================================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ==========================================
+# CARPETAS DE COMPILACIÓN O TEMPORALES
+# ==========================================
+dist/
+build/
+.tmp/
+.temp/
+coverage/

@@ -1,0 +1,58 @@
+{
+  "perfilActivo": "tanzi_48",
+  "anchosSecciones": [
+    9,
+    9
+  ],
+  "motores": [
+    {
+      "uid_esp": "58424D5C3314",
+      "indice_interno": 0,
+      "id_logico": 1,
+      "nombre": "Semilla C1",
+      "tren": 1,
+      "seccionAOG": 0,
+      "control_pid": {
+        "kp": 10.6,
+        "ki": 0.1,
+        "kd": 0,
+        "pid_time": 50,
+        "max_integral": 4096
+      },
+      "active": true,
+      "meter_cal": 1454.55,
+      "calibracion": {
+        "pwm_min": 338,
+        "pwm_max": 3842
+      },
+      "secciones_aog": [
+        0,
+        1
+      ]
+    },
+    {
+      "uid_esp": "58424D5C3314",
+      "indice_interno": 1,
+      "id_logico": 2,
+      "nombre": "Ferti C1",
+      "tren": 2,
+      "seccionAOG": 0,
+      "control_pid": {
+        "kp": 1,
+        "ki": 0.1,
+        "kd": 0,
+        "pid_time": 50,
+        "max_integral": 255
+      },
+      "active": true,
+      "meter_cal": 50,
+      "calibracion": {
+        "pwm_min": 40,
+        "pwm_max": 255
+      },
+      "secciones_aog": [
+        1
+      ]
+    }
+  ]
+}

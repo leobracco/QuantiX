@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantix Offline</title>
+    
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"> 
+    <link rel="stylesheet" href="css/leaflet.css" />
+    
+    <style>
+        body, html { height: 100%; margin: 0; overflow: hidden; font-family: sans-serif; background-color: #121212; }
+        
+        /* EL MAPA OFFLINE (Fondo Oscuro Técnico) */
+        #map { 
+            height: 100vh; width: 100vw; 
+            z-index: 1; position: absolute; top: 0; left: 0; 
+            background: #202020; 
+            background-image: 
+                linear-gradient(#2a2a2a 1px, transparent 1px),
+                linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
+            background-size: 50px 50px; 
+        }
+
+        /* CAPAS FLOTANTES */
+        .floating-ui {
+            position: absolute; z-index: 1000;
+            background: rgba(30, 30, 30, 0.9);
+            border: 1px solid #444;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .top-bar {
+            top: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 20px; padding: 8px 20px;
+            align-items: center; border-radius: 50px;
+        }
+
+        .menu-btn {
+            top: 20px; left: 20px;
+            width: 50px; height: 50px;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 1.5rem; cursor: pointer;
+            background: #28a745; border: none;
+            border-radius: 50%;
+        }
+
+        .motor-panel {
+            top: 20px; right: 20px; width: 260px;
+            padding: 10px; max-height: 85vh; overflow-y: auto;
+        }
+
+        /* OFFCANVAS DARK - Ampliado para configuración cómoda */
+        .offcanvas { background-color: #1a1a1a; color: #ccc; }
+        .offcanvas-header { border-bottom: 1px solid #333; }
+        .btn-close { filter: invert(1); }
+        .offcanvas-start { width: 600px; } /* Más ancho para la tabla */
+
+        /* Icono Tractor */
+        .tractor-icon { filter: drop-shadow(0 0 4px rgba(0,0,0,0.8)); }
+        
+        /* Estilos específicos para la tabla y listas */
+        .list-group-item { border-color: #444; }
+        .table-dark { --bs-table-bg: #222; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <button class="floating-ui menu-btn" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu">
+        <span>☰</span> 
+    </button>
+
+    <div class="floating-ui top-bar">
+        <div class="pe-3 border-end border-secondary">
+            <h2 class="m-0 fw-bold" id="speed-val">0.0</h2>
+            <small class="text-secondary">km/h</small>
+        </div>
+        <div class="ps-3">
+            <span id="mqtt-status-badge" class="badge bg-secondary">WAITING...</span>
+        </div>
+    </div>
+
+    <div class="floating-ui motor-panel" id="motor-container">
+        <small class="text-secondary fw-bold d-block mb-2">MOTORES</small>
+        <div id="motor-list"></div>
+    </div>
+
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="sidebarMenu">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title text-success">Configuración Quantix</h5>
+            <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body">
+            <ul class="nav nav-tabs nav-justified mb-3" id="menuTabs">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#menu-op">Mapa</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#menu-cfg">Motores</button></li>
+            </ul>
+
+            <div class="tab-content">
+                <div class="tab-pane fade show active" id="menu-op">
+                    <label class="small text-muted">Cargar Prescripción (SHP)</label>
+                    <input type="file" id="map-upload" class="form-control form-control-sm bg-dark text-white border-secondary mb-3" accept=".shp,.dbf" multiple>
+                    <button class="btn btn-success btn-sm w-100 mb-4" onclick="subirArchivosAlServer()">Cargar</button>
+                    
+                    <hr class="border-secondary">
+                    
+                    <label class="small text-muted">Dosis Fija (Manual)</label>
+                    <div class="input-group input-group-sm mb-2">
+                        <span class="input-group-text bg-dark text-white border-secondary">Dosis</span>
+                        <input type="number" id="val-manual" class="form-control bg-dark text-white border-secondary">
+                    </div>
+                    <button class="btn btn-outline-warning btn-sm w-100" onclick="toggleDosisManual()">Activar Manual</button>
+                    
+                    <div id="mapping-area" class="mt-3" style="display:none;"></div>
+                </div>
+
+                <div class="tab-pane fade" id="menu-cfg">
+                    
+                    <div class="card bg-dark text-white border-secondary mb-4">
+                        <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0 text-warning"><i class="fas fa-satellite-dish me-2"></i>Descubiertos</h6>
+                            <span class="badge bg-secondary" id="badge-nuevos">0</span>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="lista-descubiertos" class="list-group list-group-flush" style="max-height: 200px; overflow-y: auto;">
+                                <div class="p-3 text-center text-muted small">Buscando dispositivos...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card bg-dark text-white border-secondary">
+    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">Motores Asignados</h6>
+        <button class="btn btn-sm btn-outline-light" onclick="window.cargarConfiguracionTabla()">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-dark table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th class="text-center">#</th>
+                        <th>Nombre</th>
+                        <th>UID / IP</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-motores">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+                    <div id="config-list" class="mt-4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    /* ******************Modal Config motores*************************/
+    <div class="modal fade" id="modalConfigMotor" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content bg-white text-dark shadow-lg border-0">
+            
+            <div class="modal-header bg-light border-bottom">
+                <div>
+                    <h5 class="modal-title text-primary fw-bold" id="conf-motor-title">
+                        <i class="fas fa-cogs me-2"></i>Configurar Motor
+                    </h5>
+                    <small class="text-muted text-monospace" id="conf-motor-uid">UID: ---</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body bg-light bg-opacity-25">
+                
+                <ul class="nav nav-pills nav-fill mb-4 p-1 bg-white rounded shadow-sm" id="pills-tab" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active fw-bold small" data-bs-toggle="pill" data-bs-target="#tab-dosis" type="button">
+                            <i class="fas fa-seedling me-2"></i>Dosis & Nombre
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold small" data-bs-toggle="pill" data-bs-target="#tab-pid" type="button">
+                            <i class="fas fa-tachometer-alt me-2"></i>PID & PWM
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold small" data-bs-toggle="pill" data-bs-target="#tab-aog" type="button">
+                            <i class="fas fa-th me-2"></i>Secciones
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    
+                    <div class="tab-pane fade show active" id="tab-dosis">
+    
+    <div class="card border-0 shadow-sm p-3 mb-3 bg-white">
+        <h6 class="text-secondary border-bottom pb-2 mb-3">Datos Generales</h6>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label small fw-bold text-secondary">Nombre Identificativo</label>
+                <input type="text" id="input-nombre" class="form-control bg-light" placeholder="Ej: Semilla Izquierda">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small fw-bold text-secondary">Constante Actual (Pulsos/Unidad)</label>
+                <div class="input-group">
+                    <input type="number" id="input-metercal" class="form-control bg-light fw-bold text-primary" step="0.1">
+                    <span class="input-group-text bg-light text-muted small">pp/u</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border border-warning shadow-sm bg-warning bg-opacity-10">
+        <div class="card-header bg-warning bg-opacity-25 border-warning text-dark fw-bold d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-balance-scale me-2"></i>Asistente de Calibración</span>
+            <span class="badge bg-dark text-warning" id="lbl-pulsos-acumulados">0 pulsos</span>
+        </div>
+        <div class="card-body">
+            <p class="small text-muted mb-3">
+                Esta herramienta hace girar el motor para que usted recolecte y pese la semilla/fertilizante.
+            </p>
+
+            <div class="row g-2 align-items-center mb-3">
+                <div class="col-md-8">
+                    <label class="small fw-bold text-secondary">1. Velocidad de Prueba (PWM)</label>
+                    <input type="range" class="form-range" id="slider-calib-pwm" min="0" max="4095" value="0" 
+                           oninput="document.getElementById('lbl-calib-pwm').innerText = this.value">
+                </div>
+                <div class="col-md-4 text-center">
+                    <span class="badge bg-secondary mb-1" id="lbl-calib-pwm">0</span>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-sm btn-dark" id="btn-start-calib" onclick="window.iniciarCalibracion()">
+                            <i class="fas fa-play me-1"></i>Girar
+                        </button>
+                        <button class="btn btn-sm btn-danger d-none" id="btn-stop-calib" onclick="window.detenerCalibracion()">
+                            <i class="fas fa-stop me-1"></i>Detener
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="border-warning opacity-50">
+
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-dark">Pulsos Contados</label>
+                    <input type="number" id="input-calib-pulsos" class="form-control border-warning" readonly>
+                    <small class="text-muted" style="font-size:0.7rem">Leído del encoder</small>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small fw-bold text-dark">Cantidad Recolectada</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" id="input-calib-peso" class="form-control border-warning" placeholder="0.000">
+                        <span class="input-group-text border-warning bg-warning bg-opacity-25">kg/sem</span>
+                    </div>
+                    <small class="text-muted" style="font-size:0.7rem">Pese lo que cayó</small>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-success w-100 fw-bold shadow-sm" onclick="window.calcularYAplicarMeterCal()">
+                        <i class="fas fa-calculator me-2"></i>Calcular
+                    </button>
+                </div>
+            </div>
+            
+            <div id="resultado-calib" class="mt-2 text-center text-success fw-bold small" style="display:none;">
+                </div>
+        </div>
+    </div>
+</div>
+
+                    <div class="tab-pane fade" id="tab-pid">
+                        
+                        <div class="card border-0 shadow-sm p-3 mb-4 bg-white">
+                            <h6 class="text-secondary border-bottom pb-2 mb-3">Sintonía Fina</h6>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="small fw-bold text-secondary">Kp (Fuerza)</label>
+                                    <input type="number" id="input-kp" class="form-control form-control-sm" step="0.1">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="small fw-bold text-secondary">Ki (Acumulado)</label>
+                                    <input type="number" id="input-ki" class="form-control form-control-sm" step="0.1">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="small fw-bold text-secondary">Kd (Freno)</label>
+                                    <input type="number" id="input-kd" class="form-control form-control-sm" step="0.01">
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted">PWM Mínimo</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" id="input-minpwm" class="form-control">
+                                        <span class="input-group-text bg-white text-muted"><i class="fas fa-arrow-down"></i></span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted">PWM Máximo</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" id="input-maxpwm" class="form-control">
+                                        <span class="input-group-text bg-white text-muted"><i class="fas fa-arrow-up"></i></span>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6 mt-3">
+                                    <label class="small text-muted">Ciclo PID (ms)</label>
+                                    <input type="number" id="input-pidtime" class="form-control form-control-sm bg-light">
+                                </div>
+                                <div class="col-md-6 mt-3">
+                                    <label class="small text-muted">Max Integral</label>
+                                    <input type="number" id="input-maxint" class="form-control form-control-sm bg-light">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card border border-warning shadow-sm bg-warning bg-opacity-10">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="m-0 text-dark fw-bold"><i class="fas fa-flask me-2"></i>Prueba & Calibración</h6>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="chk-test-live" onchange="window.toggleMotorTest()">
+                                        <label class="form-check-label small fw-bold" for="chk-test-live">Activar Motor</label>
+                                    </div>
+                                </div>
+                                
+                                <div class="row align-items-center g-2">
+                                    <div class="col-9">
+                                        <input type="range" class="form-range" id="slider-pwm-test" min="0" max="4095" value="0" disabled 
+                                               oninput="window.updateTestPWM(this.value)">
+                                    </div>
+                                    <div class="col-3 text-end">
+                                        <span class="badge bg-dark fs-6" id="lbl-pwm-test">0</span>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex gap-2 mt-2 justify-content-center">
+                                    <button class="btn btn-sm btn-outline-dark bg-white" onclick="window.setAsMinPWM()">
+                                        <i class="fas fa-arrow-down me-1"></i>Fijar como Min
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-dark bg-white" onclick="window.setAsMaxPWM()">
+                                        <i class="fas fa-arrow-up me-1"></i>Fijar como Max
+                                    </button>
+                                </div>
+                                <small class="text-muted d-block text-center mt-2" style="font-size: 0.7rem;">
+                                    Use el slider para encontrar el punto donde el motor empieza a girar y fíjelo como Min.
+                                </small>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="tab-pane fade" id="tab-aog">
+                        <div class="card border-0 shadow-sm p-3 bg-white">
+                            <p class="small text-muted mb-2">Seleccione qué secciones de AgOpenGPS activan este motor:</p>
+                            <div id="container-secciones" class="d-flex flex-wrap gap-2 justify-content-center">
+                                </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            
+            <div class="modal-footer bg-light border-top justify-content-between">
+                <button type="button" class="btn btn-outline-danger btn-sm border-0" onclick="window.eliminarMotorActual()">
+                    <i class="fas fa-trash-alt me-1"></i>Eliminar
+                </button>
+                <div>
+                    <button type="button" class="btn btn-link text-secondary text-decoration-none me-2" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary px-4 fw-bold shadow-sm" onclick="window.guardarConfiguracionMotor()">
+                        <i class="fas fa-save me-2"></i>Guardar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script src="js/mqtt.min.js"></script>
+    <script src="js/leaflet.js"></script>
+    <script src="js/bootstrap.bundle.min.js"></script>
+    
+    <script type="module" src="js/map-engine.js"></script>
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/motor-admin.js"></script>
+</body>
+</html>
