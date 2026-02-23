@@ -142,92 +142,57 @@ app.post('/api/config/asignar', (req, res) => {
 
 // 4. ACTUALIZAR MOTOR (Dosis, PID, Secciones)
 app.post('/api/config/update-motor', (req, res) => {
-    const data = req.body; // uid, nombre, meter_cal, control_pid, calibracion, secciones_aog
+    const data = req.body; 
     
-    // IMPORTANTE: En el frontend debemos enviar también el 'indice_interno' o 'id_logico' 
-    // para saber cuál de los 2 motores de la placa estamos tocando.
-    // Si el frontend envía 'id_logico', lo usamos.
-    
-    const motor = memoriaEstado.motores.find(m => m.uid_esp === data.uid && m.nombre === data.nombre);
-    // Nota: Buscar por nombre es riesgoso si se edita el nombre. 
-    // Lo ideal es que el frontend envíe el índice del array o un ID inmutable.
-    // Asumiremos que el frontend envía el objeto completo o usamos lógica de búsqueda mejorada si fallara.
-    
-    // BÚSQUEDA ROBUSTA: Encontrar por UID y ID Lógico (que no cambia fácilmente)
-    // El frontend debería enviarlo. Si no, intentamos actualizar todos los de ese UID (no recomendado).
-    
-    // Vamos a buscar el motor específico en el array
-    let motorTarget = null;
-    
-    // Estrategia: El frontend envía el objeto completo modificado o IDs clave.
-    // Vamos a asumir que actualizamos por UID + id_logico si viene, o nombre.
-    // Si el request body no trae id_logico, intentamos deducirlo.
-    
-    // FIX para el código anterior del frontend:
-    // El frontend debe enviar 'id_logico' en el payload. 
-    // Si no lo hace, podemos buscar por nombre original antes de editarlo.
-    
-    // Por simplicidad, iteramos y actualizamos el que coincida.
-    // Aquí actualizamos en memoria:
-    
-    // Encontramos el índice
-    const idx = memoriaEstado.motores.findIndex(m => m.uid_esp === data.uid && (m.nombre === data.nombre || m.nombre.startsWith(data.nombre.split(' ')[0])));
-    
-    // Si no encontramos match exacto, asumimos que estamos editando uno basado en el UID y algún parámetro.
-    // Para evitar errores, actualizaremos el motor que tenga el mismo 'uid' y 'indice_interno' si viniera.
-    
-    // ASUNCIÓN: El frontend envía 'uid' correcto. Pero como un UID tiene 2 motores,
-    // necesitamos saber cuál es.
-    // Vamos a asumir que el usuario edita y guarda.
-    // El frontend que te pasé antes envía todo el payload. 
-    
-    // Buscamos por UID y NOMBRE (El nombre viejo venía en el objeto original, el nuevo en data.nombre)
-    // Esto es delicado. Mejor buscar por índice en el array si el frontend lo tuviera.
-    
-    // SOLUCIÓN PRÁCTICA: Buscar por UID y TIPO (Semilla/Ferti) basándonos en el ID lógico implícito
-    // O mejor, el frontend que te pasé envía el UID.
-    // Vamos a buscar todos los motores de ese UID y ver cuál coincide con el ID Lógico o Indice Interno.
-    // Como el frontend `motor-admin.js` guarda `currentEditingUid` pero no el ID específico,
-    // *deberías* actualizar `motor-admin.js` para enviar `id_logico`.
-    
-    // SIN EMBARGO, para que funcione YA con el código que tienes:
-    // Vamos a buscar el motor por UID y si el nombre contiene "Semilla" o "Ferti".
-    
-    let target = memoriaEstado.motores.find(m => m.uid_esp === data.uid && m.nombre === data.nombre);
-    
-    // Si cambiamos el nombre, esto fallará la próxima vez.
-    // Es CRITICO que el frontend envíe un ID único. 
-    // (Asumimos que has actualizado motor-admin.js como te indiqué en el paso anterior).
-    
-    // Si no encuentra, busca por ID Lógico si viniera en el body (Recomendado agregar al frontend)
-    if (!target && data.id_logico) {
-        target = memoriaEstado.motores.find(m => m.id_logico === data.id_logico);
-    }
+    // A. ACTUALIZAMOS LOS DATOS GLOBALES (Surcos, Trenes, etc.)
+    if (data.implemento) {
+    memoriaEstado.implemento = {
+        ...memoriaEstado.implemento,
+        surcos_totales: data.implemento.surcos_totales,
+        distancia_trenes: data.implemento.distancia_trenes,
+        tipo_tren: data.implemento.tipo_tren,
+        sentido_surcos: data.implemento.sentido_surcos // <-- AGREGAR ESTO
+    };
+}
+  
+
+    // B. BUSQUEDA ROBUSTA DEL MOTOR
+    // Intentamos buscar por UID y Nombre, o mejor aún por id_logico si el frontend lo mandó
+    let target = memoriaEstado.motores.find(m => 
+        (m.uid_esp === data.uid && m.id_logico === data.id_logico) ||
+        (m.uid_esp === data.uid && m.nombre === data.nombre)
+    );
 
     if (target) {
+        // Actualizamos los valores básicos
         target.nombre = data.nombre;
         target.meter_cal = data.meter_cal;
         target.control_pid = data.control_pid;
         target.calibracion = data.calibracion;
-        target.secciones_aog = data.secciones_aog;
         
-        // Guardar
-        guardarConfig();
+        // ¡ESTO ES LO MÁS IMPORTANTE!: 
+        // El frontend manda 'configuracion_secciones', lo guardamos tal cual en el JSON
+        target.configuracion_secciones = data.configuracion_secciones; 
         
-        // Enviar a la placa
+        // Guardar físicamente en el archivo JSON
+        // Nota: Asegúrate que tu función se llame guardarConfig o usa guardarEstadoEnArchivo
+        if (typeof guardarConfig === 'function') {
+            guardarConfig();
+        } else {
+            const rutaConfig = path.join(__dirname, 'data', 'config_sistema.json');
+            fs.writeFileSync(rutaConfig, JSON.stringify(memoriaEstado, null, 2));
+        }
+        
+        // Avisamos a la placa por MQTT
         enviarConfigMQTT(data.uid);
         
+        console.log(`✅ Motor ${data.nombre} y configuración de surcos guardados con éxito.`);
         res.json({ status: "ok" });
     } else {
-        // Fallback: Si no sabemos cuál es, actualizamos el primero que coincida con el UID (Peligroso)
-        // O devolvemos error.
-        
-        // Intento de recuperación: Buscar por UID y "indice_interno" (0 o 1) si estuviera.
-        // Si no, devolvemos error para forzar corrección en frontend.
-        res.status(404).json({ error: "Motor específico no encontrado. Faltan datos de identificación." });
+        console.error("❌ Error: No se pudo identificar el motor para guardar.");
+        res.status(404).json({ error: "Motor no encontrado. Intenta recargar el dashboard." });
     }
 });
-
 // 5. ELIMINAR MOTOR (Desvincular Placa)
 app.post('/api/config/delete-motor', (req, res) => {
     const { uid } = req.body;
@@ -327,6 +292,67 @@ function enviarConfigMQTT(uid) {
     client.publish(topic, JSON.stringify(payload), { retain: true });
     console.log(`📤 Config enviada a ${topic}`);
 }
+
+// ========================================================
+// 🚜 ALERTA DE CAMBIOS EN EL PILOTO AUTOMÁTICO (AOG)
+// ========================================================
+
+// Esta variable guarda la alerta hasta que el usuario la acepte
+let alertaPiloto = {
+    hayCambio: false,
+    nuevasSecciones: 0,
+    nuevosAnchos: []
+};
+
+// 1. El Bridge golpea esta ruta cuando detecta el PGN 235 diferente
+app.post('/api/piloto/notificar-cambio', (req, res) => {
+    const { secciones_detectadas, anchos_detectados } = req.body;
+    console.log(`[API] ⚠️ Atención: AOG notificó un cambio a ${secciones_detectadas} secciones.`);
+    
+    alertaPiloto.hayCambio = true;
+    alertaPiloto.nuevasSecciones = secciones_detectadas;
+    alertaPiloto.nuevosAnchos = anchos_detectados;
+    
+    res.json({ success: true });
+});
+
+// 2. El Dashboard Web (app.js) consulta esta ruta al abrirse
+app.get('/api/piloto/estado-cambios', (req, res) => {
+    res.json(alertaPiloto);
+});
+
+// 3. El usuario le da al botón "Aceptar y Sincronizar" en el modal de la web
+app.post('/api/piloto/aceptar-cambios', (req, res) => {
+    if (alertaPiloto.hayCambio) {
+        try {
+            // 1. Actualizamos el objeto en memoria (asegurándonos de que existan los campos)
+            if (!memoriaEstado.implemento) memoriaEstado.implemento = {};
+            
+            memoriaEstado.implemento.cantidad_secciones_aog = alertaPiloto.nuevasSecciones;
+            memoriaEstado.implemento.anchos_secciones_aog = alertaPiloto.nuevosAnchos;
+            
+            const anchoTotalMetros = alertaPiloto.nuevosAnchos.reduce((a, b) => a + b, 0) / 100;
+            memoriaEstado.implemento.ancho_total = anchoTotalMetros;
+
+            // 2. GUARDADO REAL (Usando tu lógica de server.js)
+            // En tu código, el archivo es path.join(__dirname, 'data', 'config_sistema.json')
+            const rutaConfig = path.join(__dirname, 'data', 'config_sistema.json');
+            fs.writeFileSync(rutaConfig, JSON.stringify(memoriaEstado, null, 2));
+            
+            console.log(`[API] ✅ Configuración sincronizada y guardada en: ${rutaConfig}`);
+
+            // 3. Limpiamos la alerta para que deje de aparecer
+            alertaPiloto.hayCambio = false;
+            
+            res.json({ success: true });
+        } catch (error) {
+            console.error("❌ Error al guardar la configuración:", error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    } else {
+        res.json({ success: true, message: "No había cambios pendientes" });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`🚀 Quantix Server activo en http://localhost:${PORT}`);

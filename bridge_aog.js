@@ -292,6 +292,42 @@ udpSocket.on("message", (msg) => {
         // El Dashboard espera recibir aog/machine/speed
         mqttClient.publish("aog/machine/speed", velocidadActual.toFixed(1));
     }
+    // ---------------------------------------------------------
+    // PGN 235 (0xEB): CONFIGURACIÓN DE SECCIONES DESDE AOG
+    // ---------------------------------------------------------
+    // ---------------------------------------------------------
+    // PGN 235 (0xEB): CONFIGURACIÓN DE SECCIONES DESDE AOG
+    // ---------------------------------------------------------
+    else if (pgn === 235) {
+        if (msg.length >= 38) {
+            const cantidadSeccionesAOG = msg[37]; 
+            
+            let anchos_cm = [];
+            for (let i = 0; i < cantidadSeccionesAOG; i++) {
+                anchos_cm.push(msg.readUInt16LE(5 + (i * 2)));
+            }
+
+            // Evitamos que crashee si configImplemento todavía no cargó
+            const configActual = configImplemento?.cantidad_secciones_aog || 0;
+
+            // Solo disparamos la alerta si el monitor tiene configuradas secciones
+            // Y si ese número es diferente al que QuantiX conoce actualmente.
+            if (cantidadSeccionesAOG > 0 && cantidadSeccionesAOG !== configActual) {
+                console.log(`\n⚠️ ALERTA: AOG cambió a ${cantidadSeccionesAOG} secciones. QuantiX esperaba ${configActual}. Avisando al servidor...`);
+                
+                // 1. Enviar el paquete al Backend
+                axios.post("http://localhost:8080/api/piloto/notificar-cambio", {
+                    secciones_detectadas: cantidadSeccionesAOG,
+                    anchos_detectados: anchos_cm
+                }).catch(err => console.error("❌ Error enviando alerta al servidor:", err.message));
+                
+                // 2. Actualizamos la memoria temporal del Bridge para no "spamear" el POST
+                if (configImplemento) {
+                    configImplemento.cantidad_secciones_aog = cantidadSeccionesAOG;
+                }
+            }
+        }
+    }
     else if (pgn === 100) { 
     const longitud = msg.readDoubleLE(5);
     const latitud = msg.readDoubleLE(13);
@@ -342,6 +378,30 @@ udpSocket.on("message", (msg) => {
     // Opcional: Disparar el cálculo de dosis inmediatamente
     procesarDosis(latitud, longitud);
 }
+else if (pgn === 236) {
+        // El PGN 236 trae la configuración del implemento armada en el monitor.
+        // El Byte 5 contiene la cantidad de secciones configuradas.
+        const cantidadSeccionesAOG = msg[5];
+        
+        // Si tenemos nuestra configuración cargada, verificamos si coinciden
+        if (configImplemento && cantidadSeccionesAOG > 0) {
+            // Asumimos que tienes una variable en QuantiX que guarda esto
+            const cantidadSeccionesQuantiX = configImplemento.cantidad_secciones_aog || 0;
+
+            // Si el monitor dice que hay 8 secciones, y QuantiX tiene 4, hay un cambio.
+            if (cantidadSeccionesQuantiX !== 0 && cantidadSeccionesAOG !== cantidadSeccionesQuantiX) {
+                console.log(`⚠️ ALERTA: Monitor configurado con ${cantidadSeccionesAOG} secciones. QuantiX esperaba ${cantidadSeccionesQuantiX}.`);
+                
+                // Aquí podrías enviar un mensaje al Dashboard (App.js) para que
+                // muestre el cartel: "Cambió la config del piloto, ¿desea actualizar?"
+                /*
+                axios.post("http://localhost:8080/api/piloto/notificar-cambio", {
+                    secciones_detectadas: cantidadSeccionesAOG
+                }).catch(() => {});
+                */
+            }
+        }
+    }
     // ---------------------------------------------------------
     // PGN 229 (0xE5): 64 SECCIONES (Versión Extendida)
     // ---------------------------------------------------------

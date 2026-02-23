@@ -12,12 +12,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // CARGA INICIAL: Pedir al backend el mapa y configuración que ya existen
     try {
+        const resultado = await fetch('/api/piloto/estado-cambios');
+        const alerta = await resultado.json();
+        
+        if (alerta.hayCambio) {
+            document.getElementById('lbl-nuevas-secciones').innerText = alerta.nuevasSecciones;
+            const modal = new bootstrap.Modal(document.getElementById('modalAlertaPiloto'));
+            modal.show();
+        }
         const res = await fetch('http://localhost:8080/api/estado-sistema');
         const data = await res.json();
         if (data.mapa) MapEngine.mostrarMapaEnPantalla(data.mapa);
     } catch (e) { console.error("Error cargando estado inicial:", e); }
 });
 
+// Función para el botón "Aceptar y Sincronizar"
+window.aceptarCambiosPiloto = async () => {
+    try {
+        await fetch('/api/piloto/aceptar-cambios', { method: 'POST' });
+        // Recargar la página para que el Dashboard dibuje la nueva cantidad de secciones
+        window.location.reload(); 
+    } catch (e) {
+        alert("Error al sincronizar los cambios.");
+    }
+};
 // --- 2. MQTT (Suscripciones Precisas) ---
 client.on('connect', () => {
     document.getElementById('mqtt-status-badge').className = "badge bg-success";
@@ -27,6 +45,7 @@ client.on('connect', () => {
     client.subscribe("aog/machine/position"); 
     client.subscribe("aog/machine/speed");
     client.subscribe("agp/quantix/#"); 
+    client.subscribe("sections/state");
 });
 
 client.on('message', (topic, message) => {
@@ -39,7 +58,42 @@ client.on('message', (topic, message) => {
             const speedVal = parseFloat(data);
             document.getElementById('speed-val').innerText = speedVal.toFixed(1);
         }
+        // --- ACTUALIZAR SECCIONES EN LA UI ---
+if (topic === "sections/state") {
+    try {
+        const estados = JSON.parse(msgStr);
+        // Sacamos la cantidad de secciones desde nuestra config oficial
+        // state.config es donde deberías tener cargado el JSON que me mostraste
+        const cantSecciones = state.config.implemento.cantidad_secciones_aog || 4;
+        const container = document.getElementById('container-secciones-vivas');
 
+        if (container) {
+            // Si el número de cajitas no coincide con la config, las volvemos a crear
+            if (container.children.length !== cantSecciones) {
+                container.innerHTML = '';
+                for (let i = 0; i < cantSecciones; i++) {
+                    const div = document.createElement('div');
+                    div.id = `sec-viva-${i}`;
+                    div.className = 'rounded-1 border border-secondary';
+                    // Calculamos el ancho dinámico para que entren todas
+                    div.style.width = '30px';
+                    div.style.height = '15px';
+                    div.style.backgroundColor = '#333';
+                    container.appendChild(div);
+                }
+            }
+
+            // Actualizamos el color según el estado (ON/OFF)
+            for (let i = 0; i < cantSecciones; i++) {
+                const box = document.getElementById(`sec-viva-${i}`);
+                if (box) {
+                    box.style.backgroundColor = (estados[i] === 1) ? '#28a745' : '#444'; // Verde si ON, Gris si OFF
+                    box.style.boxShadow = (estados[i] === 1) ? '0 0 8px #28a745' : 'none';
+                }
+            }
+        }
+    } catch (e) { console.error("Error visualizando secciones:", e); }
+}
         // B. POSICIÓN TRACTOR (AQUÍ SE MUESTRA EL TRACTOR)
         if (topic === "aog/machine/position") {
             if (data.lat && data.lon) {
@@ -202,3 +256,60 @@ export function actualizarDatosMotor(data) {
         elPwmBar.style.width = `${pct}%`;
     }
 }
+// ========================================================
+// 🚜 VIGILANTE DE CAMBIOS EN EL PILOTO AUTOMÁTICO
+// ========================================================
+let modalAOG = null;
+let alertaIgnorada = false;
+
+// Consultar cada 3 segundos si el servidor tiene una alerta pendiente
+setInterval(async () => {
+    // Si el usuario le dio a "Ignorar", no lo molestamos más hasta que recargue la página
+    if (alertaIgnorada) return; 
+    
+    try {
+        const res = await fetch('/api/piloto/estado-cambios');
+        const alerta = await res.json();
+        
+        if (alerta.hayCambio) {
+            // Actualizamos el número en el cartel
+            document.getElementById('lbl-nuevas-secciones').innerText = alerta.nuevasSecciones;
+            
+            // Inicializamos el modal si no existe
+            if (!modalAOG) {
+                modalAOG = new bootstrap.Modal(document.getElementById('modalAlertaPiloto'));
+            }
+            
+            // Si el modal no está visible en pantalla, lo mostramos
+            if (!document.getElementById('modalAlertaPiloto').classList.contains('show')) {
+                modalAOG.show();
+            }
+        }
+    } catch (e) {
+        // Ignoramos errores de red silenciosamente
+    }
+}, 3000);
+
+// Función para el botón amarillo "Aceptar y Sincronizar"
+window.aceptarCambiosPiloto = async () => {
+    // Bloqueamos nuevas consultas mientras aceptamos
+    alertaIgnorada = true; 
+
+    try {
+        const response = await fetch('/api/piloto/aceptar-cambios', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.success) {
+            if (modalAOG) modalAOG.hide();
+            console.log("Sincronización exitosa");
+            // Recargamos para ver los cambios
+            setTimeout(() => window.location.reload(), 500);
+        } else {
+            alert("Error al sincronizar: " + result.error);
+            alertaIgnorada = false; // Reintentar si falló
+        }
+    } catch (e) {
+        console.error("Error al sincronizar", e);
+        alertaIgnorada = false;
+    }
+};

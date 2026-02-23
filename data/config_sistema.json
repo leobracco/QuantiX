@@ -25,9 +25,31 @@
         "pwm_min": 338,
         "pwm_max": 3842
       },
-      "secciones_aog": [
-        0,
-        1
+      "configuracion_secciones": [
+        {
+          "seccion_aog": 2,
+          "tipo": "delantero",
+          "surcos_inicio": 61,
+          "surcos_fin": 72
+        },
+        {
+          "seccion_aog": 4,
+          "tipo": "delantero",
+          "surcos_inicio": 85,
+          "surcos_fin": 96
+        },
+        {
+          "seccion_aog": 1,
+          "tipo": "trasero",
+          "surcos_inicio": 1,
+          "surcos_fin": 12
+        },
+        {
+          "seccion_aog": 3,
+          "tipo": "trasero",
+          "surcos_inicio": 25,
+          "surcos_fin": 36
+        }
       ]
     },
     {
@@ -52,7 +74,46 @@
       },
       "secciones_aog": [
         1
+      ],
+      "configuracion_secciones": [
+        {
+          "seccion_aog": 2,
+          "tipo": "delantero",
+          "surcos_inicio": 61,
+          "surcos_fin": 72
+        },
+        {
+          "seccion_aog": 4,
+          "tipo": "delantero",
+          "surcos_inicio": 85,
+          "surcos_fin": 96
+        },
+        {
+          "seccion_aog": 1,
+          "tipo": "trasero",
+          "surcos_inicio": 1,
+          "surcos_fin": 12
+        },
+        {
+          "seccion_aog": 3,
+          "tipo": "trasero",
+          "surcos_inicio": 25,
+          "surcos_fin": 36
+        }
       ]
     }
-  ]
+  ],
+  "implemento": {
+    "cantidad_secciones_aog": 4,
+    "anchos_secciones_aog": [
+      456,
+      456,
+      456,
+      456
+    ],
+    "ancho_total": 18.24,
+    "surcos_totales": 96,
+    "distancia_trenes": 1.5,
+    "tipo_tren": "doble"
+  }
 }

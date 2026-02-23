@@ -80,6 +80,7 @@
             <h2 class="m-0 fw-bold" id="speed-val">0.0</h2>
             <small class="text-secondary">km/h</small>
         </div>
+        
         <div class="ps-3">
             <span id="mqtt-status-badge" class="badge bg-secondary">WAITING...</span>
         </div>
@@ -358,12 +359,42 @@
                     </div>
 
                     <div class="tab-pane fade" id="tab-aog">
-                        <div class="card border-0 shadow-sm p-3 bg-white">
-                            <p class="small text-muted mb-2">Seleccione qué secciones de AgOpenGPS activan este motor:</p>
-                            <div id="container-secciones" class="d-flex flex-wrap gap-2 justify-content-center">
-                                </div>
-                        </div>
-                    </div>
+    <div class="card border-0 shadow-sm p-3 bg-white">
+        <h6 class="text-secondary border-bottom pb-2 mb-3"><i class="fas fa-tractor me-2"></i>Configuración Global del Implemento</h6>
+        <div class="row g-2 align-items-center mb-3 bg-light p-2 rounded">
+            <div class="col-md-4">
+                <label class="small text-muted fw-bold">Surcos Totales</label>
+                <input type="number" id="input-surcos-totales" class="form-control form-control-sm" value="80" onchange="window.actualizarGemelo()">
+            </div>
+            <div class="col-md-4">
+                <label class="small text-muted fw-bold">Dist. Trenes (m)</label>
+                <input type="number" id="input-distancia-trenes" class="form-control form-control-sm" step="0.1" value="1.5" onchange="window.actualizarGemelo()">
+            </div>
+            <div class="col-md-4">
+                <div class="form-check form-switch mt-3 ms-2">
+                    <input class="form-check-input" type="checkbox" id="chk-doble-tren" checked onchange="window.actualizarGemelo()">
+                    <label class="form-check-label small fw-bold" for="chk-doble-tren">Doble Tren</label>
+                </div>
+            </div>
+        </div>
+
+        <h6 class="text-secondary border-bottom pb-2 mb-3"><i class="fas fa-sitemap me-2"></i>Asignación a este Motor</h6>
+        <p class="small text-muted mb-2">Configure qué secciones y surcos maneja físicamente este motor:</p>
+        
+        <div class="table-responsive mb-3">
+            <table class="table table-bordered table-sm text-center align-middle small" id="tabla-matriz-secciones">
+                <thead class="bg-light text-dark" id="head-matriz">
+                    </thead>
+                <tbody id="body-matriz">
+                    </tbody>
+            </table>
+        </div>
+ 
+        <h6 class="text-secondary border-bottom pb-2 mb-2"><i class="fas fa-eye me-2"></i>Gemelo Digital (Vista Previa)</h6>
+        <div id="canvas-maquina" class="bg-dark p-3 rounded d-flex flex-column align-items-center overflow-auto" style="min-height: 200px; border: 2px solid #444;">
+        </div>
+    </div>
+</div>
 
                 </div>
             </div>
@@ -382,6 +413,29 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="modalAlertaPiloto" tabindex="-1" aria-labelledby="modalAlertaPilotoLabel" aria-hidden="true" data-bs-backdrop="static">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white border-warning" style="border-width: 2px;">
+          <div class="modal-header border-secondary">
+            <h5 class="modal-title text-warning" id="modalAlertaPilotoLabel">
+                <i class="fas fa-exclamation-triangle me-2"></i>Cambio detectado en AOG
+            </h5>
+          </div>
+          <div class="modal-body">
+            <p>Se detectó que la configuración en el monitor AgOpenGPS ha cambiado.</p>
+            <p>Nuevas secciones detectadas: <span id="lbl-nuevas-secciones" class="badge bg-primary fs-5">0</span></p>
+            <p class="small text-muted mb-0">¿Deseas actualizar el Gemelo Digital de QuantiX con esta nueva configuración?</p>
+          </div>
+          <div class="modal-footer border-secondary">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="ignorarCambios()">Ignorar por ahora</button>
+            <button type="button" class="btn btn-warning fw-bold" onclick="aceptarCambiosPiloto()">
+                <i class="fas fa-sync-alt me-2"></i>Aceptar y Sincronizar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script src="js/mqtt.min.js"></script>
     <script src="js/leaflet.js"></script>

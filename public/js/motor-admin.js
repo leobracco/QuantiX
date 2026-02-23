@@ -225,9 +225,20 @@ window.abrirConfiguracionMotor = (uid, id_logico) => {
         slider.max = maxPwmConfig; 
     }
     if(document.getElementById('lbl-pwm-test')) document.getElementById('lbl-pwm-test').innerText = "0";
-
+    if (state.config && state.config.implemento) {
+        const impl = state.config.implemento;
+        if(document.getElementById('input-surcos-totales')) 
+            document.getElementById('input-surcos-totales').value = impl.surcos_totales || 80;
+        
+        if(document.getElementById('input-distancia-trenes'))
+            document.getElementById('input-distancia-trenes').value = impl.distancia_entre_trenes || 1.5;
+            
+        if(document.getElementById('chk-doble-tren'))
+            document.getElementById('chk-doble-tren').checked = (impl.tipo_tren === 'doble');
+    }
     // 6. Llenar Tab SECCIONES AOG
-    generarSelectorSecciones(motor.secciones_aog || []);
+    generarMatrizSecciones(motor);
+    setTimeout(() => window.actualizarGemelo(), 300); // Darle tiempo a la UI para dibujar
 
     // 7. Mostrar Modal
     const el = document.getElementById('modalConfigMotor');
@@ -235,26 +246,135 @@ window.abrirConfiguracionMotor = (uid, id_logico) => {
     modal.show();
 };
 
-function generarSelectorSecciones(asignadas) {
-    const container = document.getElementById('container-secciones');
-    container.innerHTML = '';
+// --- NUEVA LÓGICA DE MATRIZ Y GEMELO DIGITAL ---
 
-    // Detectamos cuántas secciones hay en total (desde AOG o default 16)
-    const totalSecciones = (state.seccionesAOG && state.seccionesAOG.length > 0) ? state.seccionesAOG.length : 16;
-    
-    // Referencia visual si existe el label
-    const lblTotal = document.getElementById('lbl-total-secciones');
-    if(lblTotal) lblTotal.innerText = totalSecciones;
+function generarMatrizSecciones(motor) {
+    const head = document.getElementById('head-matriz');
+    const body = document.getElementById('body-matriz');
+    if (!head || !body) return;
 
-    for (let i = 0; i < totalSecciones; i++) {
-        const isChecked = asignadas.includes(i) ? 'checked' : '';
-        const html = `
-            <input type="checkbox" class="btn-check chk-seccion" id="btn-check-${i}" value="${i}" ${isChecked} autocomplete="off">
-            <label class="btn btn-outline-secondary btn-sm" for="btn-check-${i}" style="width: 40px;">${i+1}</label>
-        `;
-        container.innerHTML += html;
+    // --- LEER DEL JSON ACTUALIZADO ---
+    // Buscamos la cantidad de secciones en la nueva ruta del JSON
+    const totalSeccionesAOG = (state.config && state.config.implemento) 
+        ? state.config.implemento.cantidad_secciones_aog 
+        : 4; // 4 por defecto si no hay nada
+
+    const cfgSecciones = motor.configuracion_secciones || [];
+
+    console.log(`🛠️ Generando matriz para ${totalSeccionesAOG} secciones.`);
+
+    // Generar Cabecera dinámicamente
+    let trHead = `<tr><th style="width: 15%">Tren</th>`;
+    for (let i = 1; i <= totalSeccionesAOG; i++) {
+        trHead += `<th>Sec ${i}</th>`;
     }
+    trHead += `</tr>`;
+    head.innerHTML = trHead;
+
+    // Función para generar las celdas de la tabla
+    const generarCeldas = (tipoTren) => {
+        let html = '';
+        for (let i = 1; i <= totalSeccionesAOG; i++) {
+            const cfg = cfgSecciones.find(c => c.seccion_aog === i && c.tipo === tipoTren);
+            const checked = cfg ? 'checked' : '';
+            const sIni = cfg ? cfg.surcos_inicio : '';
+            const sFin = cfg ? cfg.surcos_fin : '';
+
+            html += `
+                <td>
+                    <div class="form-check d-flex flex-column align-items-center">
+                        <input class="form-check-input chk-matriz mb-1" type="checkbox" 
+                               data-sec="${i}" data-tren="${tipoTren}" ${checked} 
+                               onchange="window.actualizarGemelo()">
+                        <div class="input-group input-group-sm" style="width: 70px;">
+                            <input type="number" class="form-control px-1 text-center in-ini" 
+                                   placeholder="1" value="${sIni}" onchange="window.actualizarGemelo()">
+                            <input type="number" class="form-control px-1 text-center in-fin" 
+                                   placeholder="20" value="${sFin}" onchange="window.actualizarGemelo()">
+                        </div>
+                    </div>
+                </td>`;
+        }
+        return html;
+    };
+
+    // Llenar el cuerpo de la tabla
+    body.innerHTML = `
+        <tr><td class="fw-bold text-success small">FRONT</td>${generarCeldas('delantero')}</tr>
+        <tr><td class="fw-bold text-primary small">REAR</td>${generarCeldas('trasero')}</tr>
+    `;
 }
+
+// Dibuja el Gemelo Digital basado en los inputs actuales
+window.actualizarGemelo = () => {
+    const canvas = document.getElementById('canvas-maquina');
+    if(!canvas) return;
+    canvas.innerHTML = '';
+
+    const surcosTotales = parseInt(document.getElementById('input-surcos-totales').value) || 96;
+    const distTrenes = document.getElementById('input-distancia-trenes').value || 1.5;
+
+    // 1. Icono del Tractor (Referencia de frente)
+    canvas.innerHTML += `
+        <div style="width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 25px solid #ffcc00; margin-bottom: 20px; position:relative;">
+            <span style="position:absolute; top:-18px; left:-25px; color:#ffcc00; font-size:9px; font-weight:bold; letter-spacing:1px;">TRACTOR</span>
+        </div>`;
+
+    // 2. Extraer asignaciones de la tabla
+    const cfgVisual = [];
+    document.querySelectorAll('.chk-matriz:checked').forEach(chk => {
+        const td = chk.closest('td');
+        const sIni = parseInt(td.querySelector('.in-ini').value) || 0;
+        const sFin = parseInt(td.querySelector('.in-fin').value) || 0;
+        if(sIni > 0 && sFin > 0) {
+            cfgVisual.push({ tipo: chk.dataset.tren, inicio: sIni, fin: sFin });
+        }
+    });
+
+    // 3. Función para dibujar cada tren con rangos específicos
+    const dibujarFila = (nombre, tipo, surcoInicio, surcoFin) => {
+        let html = `<div style="display:flex; align-items:center; margin-bottom:8px;">`;
+        html += `<span style="color:#bbb; font-size:0.65rem; width:80px; text-align:right; margin-right:12px; font-weight:bold; text-transform:uppercase;">${nombre}</span>`;
+        html += `<div style="display:flex; gap:2px; background:#1a1a1a; padding:6px; border-radius:3px; border:1px solid #333; flex-wrap: wrap; max-width: 700px;">`;
+        
+        for(let i = surcoInicio; i <= surcoFin; i++) {
+            const asignado = cfgVisual.some(c => c.tipo === tipo && i >= c.inicio && i <= c.fin);
+            
+            let color = '#333'; // Gris oscuro (apagado)
+            let glow = '';
+            let border = '1px solid #444';
+
+            if (asignado) {
+                if (tipo === 'trasero') {
+                    color = '#00d4ff'; // Azul Cyan para el trasero
+                    glow = 'box-shadow: 0 0 8px rgba(0, 212, 255, 0.8);';
+                    border = '1px solid #fff';
+                } else {
+                    color = '#28a745'; // VERDE para el delantero (así resaltan ambos)
+                    glow = 'box-shadow: 0 0 8px rgba(40, 167, 69, 0.8);';
+                    border = '1px solid #fff';
+                }
+            }
+            
+            html += `<div style="width:6px; height:18px; background-color:${color}; border-radius:1px; ${glow} border: ${border};" title="Surco ${i}"></div>`;
+        }
+        html += `</div></div>`;
+        return html;
+    };
+
+    // --- DIBUJO DE LAS FILAS ---
+    // Según tu indicación: Delantero es de 49 a 96
+    canvas.innerHTML += dibujarFila("Delantero", "delantero", 49, 96);
+
+    // Espaciado / Offset
+    canvas.innerHTML += `
+        <div style="height:25px; border-left:2px dashed #444; margin-left:92px; display:flex; align-items:center;">
+            <span style="margin-left:10px; color:#aaa; font-size:0.6rem;">↕ DISTANCIA: ${distTrenes}m</span>
+        </div>`;
+
+    // Según tu indicación: Trasero es de 1 a 48
+    canvas.innerHTML += dibujarFila("Trasero", "trasero", 1, 48);
+};
 
 // --- 5. FUNCIONES DE CALIBRACIÓN / TEST (PWM) ---
 
@@ -325,18 +445,25 @@ window.guardarConfiguracionMotor = async () => {
     if (!currentEditingUid) return;
 
     // Recolectar Secciones seleccionadas
-    const seccionesSeleccionadas = [];
-    document.querySelectorAll('.chk-seccion:checked').forEach(chk => {
-        seccionesSeleccionadas.push(parseInt(chk.value));
+ // Recolectar Secciones desde la Matriz
+    const configuracionSecciones = [];
+    document.querySelectorAll('.chk-matriz:checked').forEach(chk => {
+        const td = chk.closest('td');
+        const sIni = parseInt(td.querySelector('.in-ini').value) || 0;
+        const sFin = parseInt(td.querySelector('.in-fin').value) || 0;
+        
+        configuracionSecciones.push({
+            seccion_aog: parseInt(chk.dataset.sec),
+            tipo: chk.dataset.tren,
+            surcos_inicio: sIni,
+            surcos_fin: sFin
+        });
     });
 
     // Construir Objeto Payload
     const payload = {
         uid: currentEditingUid,
-        // Enviamos el nombre tal cual para buscarlo, o si el backend soporta ID logico mejor
         nombre: document.getElementById('input-nombre').value,
-        
-        // Datos técnicos
         meter_cal: parseFloat(document.getElementById('input-metercal').value),
         control_pid: {
             kp: parseFloat(document.getElementById('input-kp').value),
@@ -349,7 +476,13 @@ window.guardarConfiguracionMotor = async () => {
             pwm_min: parseInt(document.getElementById('input-minpwm').value),
             pwm_max: parseInt(document.getElementById('input-maxpwm').value)
         },
-        secciones_aog: seccionesSeleccionadas
+        // NUEVA ESTRUCTURA:
+        configuracion_secciones: configuracionSecciones, 
+        implemento: {
+            surcos_totales: parseInt(document.getElementById('input-surcos-totales').value),
+            distancia_trenes: parseFloat(document.getElementById('input-distancia-trenes').value),
+            tipo_tren: document.getElementById('chk-doble-tren').checked ? 'doble' : 'simple'
+        }
     };
     
     // Agregamos el id_logico para que el backend sepa exactamente a quién actualizar si hay nombres repetidos
