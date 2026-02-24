@@ -49,66 +49,55 @@ cargarMapa();
 
 // --- 2. CÁLCULO DE DOSIS ---
 async function procesarDosis(lat, lon) {
-    if (!configImplemento || !configImplemento.motores) return;
+    if (!configImplemento || !configImplemento.motores || !configImplemento.implemento.maqueta) return;
 
-    let dosisManualActiva = false;
-    let dosisValorManual = 0;
-
+    // 1. Obtener Dosis (Manual o Prescripción)
+    let dosisBase = 0;
     try {
         const res = await axios.get("http://localhost:8080/api/gis/config-trabajo");
-        dosisManualActiva = res.data.dosisManual?.activo || false;
-        dosisValorManual = res.data.dosisManual?.valor || 0;
+        if (res.data.dosisManual?.activo) {
+            dosisBase = parseFloat(res.data.dosisManual.valor) || 0;
+        } else if (mapaPrescripcion) {
+            const punto = turf.point([lon, lat]);
+            for (const f of mapaPrescripcion.features) {
+                if (turf.booleanPointInPolygon(punto, f)) {
+                    dosisBase = parseFloat(f.properties.SemillasxMetro || f.properties.Rate) || 0;
+                    break;
+                }
+            }
+        }
     } catch (e) { }
 
     const m_s = (velocidadActual > 0.5) ? (velocidadActual / 3.6) : 0;
-    const distSurcos = parseFloat(configImplemento.distanciaSurcos) || 0.19;
-    const distEntreTrenes = parseFloat(configImplemento.distanciaEntreTrenes) || 1.2; // Metros
+    const distSurcos = 0.19; 
 
-    let dosisBase = 0;
-    if (dosisManualActiva) {
-        dosisBase = parseFloat(dosisValorManual) || 0;
-    } else if (mapaPrescripcion) {
-        const punto = turf.point([lon, lat]);
-        for (const f of mapaPrescripcion.features) {
-            if (turf.booleanPointInPolygon(punto, f)) {
-                dosisBase = parseFloat(f.properties.SemillasxMetro) || 
-                            parseFloat(f.properties.KilosxHectarea) || 
-                            parseFloat(f.properties.Rate) || 0;
-                break;
-            }
-        }
-    }
-
+    // 2. Procesar cada motor basándose en la MAQUETA
     configImplemento.motores.forEach(motor => {
-        const id = motor.uid_esp;
-        const cpReal = parseFloat(motor.cp) || 1.0;
-        const seccionIndex = motor.seccionAOG || 0; 
+        // Buscamos a qué torre está asignado este motor en el modelo global
+        const torre = configImplemento.implemento.maqueta.find(t => t.id === motor.id_maqueta);
+        if (!torre) return; // Motor sin torre asignada, no gira.
+
+        // En este modelo, supongamos que cada Torre corresponde a 1 Sección de AOG
+        // O puedes mapearlo: Torre 1 -> Sección 1, Torre 2 -> Sección 2...
+        const seccionIndex = torre.id - 1; 
         
-        // --- SELECCIÓN DE TREN ---
-        // Si el motor es del Tren 2, usa el estado retardado. Si no, el inmediato.
-        const seccionActiva = (motor.tren === 2) 
+        // SELECCIÓN DE TREN DESDE EL MODELO
+        const seccionActiva = (torre.tren === 'trasero') 
             ? (estadosSeccionesTren2[seccionIndex] === 1)
             : (estadosSecciones[seccionIndex] === 1);
 
         let ppsTarget = 0;
-
         if (seccionActiva && dosisBase > 0 && m_s > 0) {
+            const cpReal = parseFloat(motor.meter_cal) || 1.0;
             const factorDosis = (dosisBase > 500) ? (dosisBase * distSurcos / 10000) : dosisBase;
             ppsTarget = (factorDosis * m_s) / cpReal;
         }
-        /*console.log(`agp/quantix/${id}/target`, JSON.stringify({
+
+        // Enviar orden al ESP32
+        mqttClient.publish(`agp/quantix/${motor.uid_esp}/target`, JSON.stringify({
+            id: motor.indice_interno, // 0 o 1 de la placa
             pps: parseFloat(ppsTarget.toFixed(2)),
-            dosis_ref: dosisBase,
-            seccion_on: seccionActiva,
-            tren: motor.tren || 1,
-            v_ms: parseFloat(m_s.toFixed(2))
-        }));*/
-        mqttClient.publish(`agp/quantix/${id}/target`, JSON.stringify({
-            pps: parseFloat(ppsTarget.toFixed(2)),
-            dosis_ref: dosisBase,
-            seccion_on: seccionActiva,
-            tren: motor.tren || 1,
-            v_ms: parseFloat(m_s.toFixed(2))
+            seccion_on: seccionActiva
         }));
     });
 }
