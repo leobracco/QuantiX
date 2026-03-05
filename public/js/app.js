@@ -67,19 +67,26 @@ client.on("message", (topic, message) => {
     // --- ACTUALIZAR SECCIONES EN LA UI (app.js) ---
     if (topic === "sections/state") {
       try {
-        // 1. PROTECCIÓN: Si la configuración aún no cargó, no hacemos nada
-        if (!state.config || !state.config.implemento) {
-          // console.log("Esperando configuración inicial...");
-          return;
+        const estados = JSON.parse(msgStr);
+
+        // Guardamos el estado en memoria para que el mapa lo sepa
+        state.seccionesActivasT1 = data.t1; // Delantero
+        state.seccionesActivasT2 = data.t2; // Trasero
+
+        // Le ordenamos al mapa que cambie los colores de los rectángulos ¡YA!
+        if (typeof MapEngine.actualizarColoresSecciones === "function") {
+          MapEngine.actualizarColoresSecciones();
         }
 
-        const estados = JSON.parse(msgStr);
+        // Si la configuración aún no cargó, no intentamos actualizar las cajitas del menú
+        if (!state.config || !state.config.implemento_activo) return;
+
+        // Actualizamos las cajitas simuladas de la barra lateral
         const cantSecciones =
-          state.config.implemento.cantidad_secciones_aog || 4;
+          state.config.implemento_activo.geometria.cantidad_secciones_aog || 4;
         const container = document.getElementById("container-secciones-vivas");
 
         if (container) {
-          // Si el número de cajitas no coincide, las creamos
           if (container.children.length !== cantSecciones) {
             container.innerHTML = "";
             for (let i = 0; i < cantSecciones; i++) {
@@ -93,12 +100,10 @@ client.on("message", (topic, message) => {
             }
           }
 
-          // Actualizamos los colores
           for (let i = 0; i < cantSecciones; i++) {
             const box = document.getElementById(`sec-viva-${i}`);
             if (box) {
-              box.style.backgroundColor =
-                estados[i] === 1 ? "#28af745" : "#444";
+              box.style.backgroundColor = estados[i] === 1 ? "#28a745" : "#444";
               box.style.boxShadow =
                 estados[i] === 1 ? "0 0 8px #28a745" : "none";
             }
@@ -141,7 +146,24 @@ client.on("message", (topic, message) => {
         const data = JSON.parse(message.toString());
         //console.log("TOPICO:" + message.toString());
         // data debe tener: { uid, id, rpm, pwm, pulsos, ... }
+        // 1. Obtener la velocidad actual de la pantalla (ya que el Bridge la publica en speed-val)
+        const velocidadKMH =
+          parseFloat(document.getElementById("speed-val")?.innerText) || 0;
+        const m_s = velocidadKMH / 3.6; // Convertimos a metros por segundo
 
+        // 2. Calcular Dosis Real: (PPS * MeterCal) / Velocidad(m/s)
+        // Esto nos da Semillas por Metro (o la unidad que uses en MeterCal)
+        let dosisReal = 0;
+        let dosisObjetivo = 0;
+        if (m_s > 0.1) {
+          // Solo calculamos si hay movimiento para evitar división por cero
+          dosisReal = (data.pps_real * data.meter_cal) / m_s;
+          dosisObjetivo = (data.pps_target * data.meter_cal) / m_s;
+        }
+
+        // 3. Actualizar la interfaz del motor específico
+        //actualizarFichaMotorUI(data, dosisReal);
+        actualizarFichaMotorUI(data, dosisReal || 0, dosisObjetivo || 0);
         actualizarDatosMotor(data);
       } catch (e) {
         console.error("Error parseando status MQTT", e);
@@ -219,54 +241,71 @@ window.confirmarMapeo = async (shp, dbf) => {
  */
 // js/app.js
 
+/**
+ * Actualiza la UI con datos REALES recibidos del ESP32 por MQTT
+ * Payload esperado: { uid, id (interno 0 o 1), rpm, pwm, pulsos, calibrando, ... }
+ */
 export function actualizarDatosMotor(data) {
   if (!data || !data.uid) return;
 
-  // Normalizamos: Si el dato viene como 'id_logico' o 'id', usamos lo que haya.
-  // El firmware corregido envía 'id' (0 o 1).
-  const incomingId = data.id !== undefined ? data.id : data.id_logico;
+  // 1. TRADUCCIÓN DE IDs
+  // El firmware de la placa envía el índice interno (0 o 1).
+  const idxInterno =
+    data.id !== undefined
+      ? parseInt(data.id)
+      : data.id_logico !== undefined
+        ? parseInt(data.id_logico)
+        : 0;
 
-  const uniqueId = `${data.uid}-${incomingId}`;
+  // Buscamos a qué "ID Lógico" global corresponde este motor físico.
+  const motorInfo = state.motores.find(
+    (m) => m.uid_esp === data.uid && m.indice_interno === idxInterno,
+  );
 
-  // --- 1. ACTUALIZACIÓN DEL MODAL ---
+  // Si no lo encontramos en memoria, ignoramos el paquete (quizás es una placa no asignada)
+  if (!motorInfo) return;
+
+  const idLogicoGlobal = motorInfo.id_logico;
+  const uniqueId = `${data.uid}-${idLogicoGlobal}`;
+
+  // --- 2. ACTUALIZACIÓN DEL MODAL DE CONFIGURACIÓN ---
   const modalAbierto = document.getElementById("modalConfigMotor");
   const isModalOpen = modalAbierto && modalAbierto.classList.contains("show");
 
   if (isModalOpen) {
-    // Comparamos usando '==' para tolerar diferencias de tipo (string vs number)
+    // ¿El motor que estamos editando AHORA es el que mandó este paquete MQTT?
     const mismoUID = window.currentEditingUid === data.uid;
-    const mismoID = window.currentEditingIdLogico == incomingId;
+    const mismoID = window.currentEditingIdLogico === idLogicoGlobal;
 
     if (mismoUID && mismoID) {
-      // A. PWM Test
+      // A. Test PWM (Restaurado)
+      const valPwmReales = data.pwm || data.pwm_out || 0;
       const lblPwm = document.getElementById("lbl-pwm-test");
-      if (lblPwm) lblPwm.innerText = data.pwm || data.pwm_out || 0;
+      if (lblPwm) lblPwm.innerText = valPwmReales;
 
       // B. Calibración (Pulsos)
-      const badgePulsos = document.getElementById("lbl-pulsos-acumulados");
-      const inputPulsos = document.getElementById("input-calib-pulsos");
-
       const pulsosReales = data.pulsos || data.total_pulses || 0;
 
+      const badgePulsos = document.getElementById("lbl-pulsos-acumulados");
       if (badgePulsos) {
         badgePulsos.innerText = `${pulsosReales} pulsos`;
 
-        // CONDICIÓN MEJORADA: Se enciende si hay RPM, PPS o si está la bandera 'calibrando'
+        // Efecto visual: si gira o dice 'calibrando', el badge titila en verde.
         const estaMoviendo =
           data.rpm > 0 || data.pps_real > 0 || data.calibrando === true;
-
         badgePulsos.className = estaMoviendo
-          ? "badge bg-success blink" // Verde parpadeando
-          : "badge bg-dark text-warning"; // Quieto
+          ? "badge bg-success border border-light" // Activo
+          : "badge bg-dark text-warning border border-secondary"; // Quieto
       }
 
+      const inputPulsos = document.getElementById("input-calib-pulsos");
       if (inputPulsos) {
         inputPulsos.value = pulsosReales;
       }
     }
   }
 
-  // --- 2. DASHBOARD ---
+  // --- 3. ACTUALIZACIÓN DEL DASHBOARD PRINCIPAL ---
   const elRpm = document.getElementById(`rpm-${uniqueId}`);
   if (elRpm) elRpm.innerText = Math.round(data.rpm || 0);
 
@@ -341,3 +380,90 @@ window.aceptarCambiosPiloto = async () => {
     alertaIgnorada = false;
   }
 };
+// Activar/Desactivar Dosis Manual desde la UI
+window.toggleDosisManual = async () => {
+  const valorInput = document.getElementById("val-manual").value;
+  const btn = document.querySelector("button[onclick='toggleDosisManual()']");
+
+  // Si dice "Activar", lo prendemos. Si no, lo apagamos.
+  const activando = btn.innerText.includes("Activar");
+
+  try {
+    await fetch("/api/gis/config-trabajo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dosisManual: {
+          activo: activando,
+          valor: activando ? parseFloat(valorInput) : 0,
+        },
+      }),
+    });
+
+    if (activando) {
+      btn.innerText = "Desactivar Manual";
+      btn.classList.replace("btn-outline-info", "btn-danger");
+      alert(`Dosis manual activada a ${valorInput}`);
+    } else {
+      btn.innerText = "Activar Dosis Manual";
+      btn.classList.replace("btn-danger", "btn-outline-info");
+      document.getElementById("val-manual").value = "0";
+      alert("Dosis manual desactivada. Volviendo a mapa (si hay).");
+    }
+  } catch (e) {
+    console.error("Error cambiando dosis manual", e);
+  }
+};
+// Función para actualizar o crear la tarjeta del motor en el panel derecho
+function actualizarFichaMotorUI(data, dosisReal, dosisObjetivo) {
+  const motorList = document.getElementById("motor-list");
+  if (!motorList || !data) return;
+
+  const motorUIId = `motor-card-${data.uid}-${data.id}`;
+  let motorCard = document.getElementById(motorUIId);
+
+  if (!motorCard) {
+    motorCard = document.createElement("div");
+    motorCard.id = motorUIId;
+    motorCard.className =
+      "motor-item p-2 mb-2 bg-dark rounded border border-secondary shadow-sm";
+    motorList.appendChild(motorCard);
+  }
+
+  // BLINDAJE: Si por algún motivo llegan undefined, los convertimos a 0
+  const dReal = typeof dosisReal === "number" ? dosisReal : 0;
+  const dObj = typeof dosisObjetivo === "number" ? dosisObjetivo : 0;
+  const ppsReal = data.pps_real || 0;
+
+  // Lógica de colores (igual que antes)
+  let colorDosis = "#28a745";
+  if (dObj > 0) {
+    const diff = Math.abs(dReal - dObj) / dObj;
+    if (diff > 0.15) colorDosis = "#ffc107";
+    if (dReal < 0.1 && dObj > 0.5) colorDosis = "#dc3545";
+  } else {
+    colorDosis = "#6c757d";
+  }
+
+  motorCard.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="badge ${data.id === 0 ? "bg-primary" : "bg-info"}" style="font-size:0.6rem;">M${data.id + 1}</span>
+          <div class="text-end">
+              <span class="fw-bold" style="color: ${colorDosis}; font-size: 1.1rem; font-family: 'Courier New', monospace;">
+                  ${dReal.toFixed(1)}
+              </span>
+              <div style="font-size: 0.6rem; color: #888; margin-top: -5px;">
+                  Objetivo: ${dObj.toFixed(1)} 
+              </div>
+          </div>
+      </div>
+      <div class="d-flex justify-content-between small text-secondary" style="font-size: 0.7rem;">
+          <span>RPM: <b class="text-light">${data.rpm || 0}</b></span>
+          <span>PPS: <b class="text-light">${ppsReal.toFixed(1)}</b></span>
+      </div>
+      <div class="progress mt-1" style="height: 4px; background-color: #222;">
+          <div class="progress-bar ${data.load_pct > 90 ? "bg-danger" : "bg-success"}" 
+               style="width: ${data.load_pct || 0}%; transition: width 0.3s;"></div>
+      </div>
+  `;
+}

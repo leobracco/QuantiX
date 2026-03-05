@@ -487,6 +487,7 @@ window.eliminarMotorActual = async () => {
 // 6. HERRAMIENTAS PWM Y CALIBRACIÓN
 // ========================================================
 window.toggleMotorTest = () => {
+  console.log("toggleMotorTest");
   const active = document.getElementById("chk-test-live").checked;
   const slider = document.getElementById("slider-pwm-test");
   if (slider) slider.disabled = !active;
@@ -499,8 +500,11 @@ window.toggleMotorTest = () => {
 };
 
 window.updateTestPWM = (val) => {
-  if (document.getElementById("lbl-pwm-test"))
+  console.log("VAL:" + val);
+  if (document.getElementById("lbl-pwm-test")) {
     document.getElementById("lbl-pwm-test").innerText = val;
+    console.log("dentro de l if VAL:" + val);
+  }
   enviarComandoTest(val);
 };
 
@@ -578,7 +582,7 @@ window.calcularYAplicarMeterCal = () => {
   const peso = parseFloat(document.getElementById("input-calib-peso").value);
   if (!pulsos || !peso) return alert("Ingrese pulsos y peso.");
 
-  const nuevoMeterCal = (pulsos / peso).toFixed(2);
+  const nuevoMeterCal = (peso / pulsos).toFixed(2);
   document.getElementById("input-metercal").value = nuevoMeterCal;
   document.getElementById("resultado-calib").innerHTML =
     `Resultado: <strong>${nuevoMeterCal}</strong> pp/u`;

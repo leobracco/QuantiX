@@ -1,142 +1,239 @@
-/**
- * Motor de Mapas Offline - AGP-VR
- * Versión: Mapa de Aplicación en Tiempo Real
- */
+import { state } from "./config.js";
 
-let map;
-let tractorMarker;
-let pathLayer; // Capa para la estela (trabajo actual)
-let coverageLayer; // Capa persistente para mapa de aplicación
-let prescriptionLayer; // Capa del SHP cargado
-let tractorIcon;
+export let map = null;
+let tractorMarker = null;
+let autoCentrar = true;
+let capaMapa = null;
 
-let lastPaintedPos = null; // Para control de distancia de pintado
+let polySeccionesT1 = [];
+let polySeccionesT2 = [];
 
 export function inicializarMapa() {
-  // 1. Configuración del contenedor
-  map = L.map("map", {
-    zoomControl: false,
-    attributionControl: false,
-    minZoom: 1,
-    maxZoom: 22,
-    fadeAnimation: false,
-    zoomAnimation: false,
-    inertia: false, // Mayor rendimiento en hardware limitado
-  }).setView([0, 0], 2);
+  map = L.map("map", { zoomControl: false, attributionControl: false }).setView(
+    [-34.0, -60.0],
+    15,
+  );
+  L.control.zoom({ position: "bottomright" }).addTo(map);
 
-  // 2. Definición del Icono del Tractor (SVG)
-  tractorIcon = L.divIcon({
-    className: "tractor-icon-wrapper",
-    html: `
-            <div id="tractor-rotator" style="display:block; transition: transform 0.1s linear;">
-                <svg width="40" height="40" viewBox="0 0 40 40">
-                    <path d="M20 5 L35 35 L20 28 L5 35 Z" fill="#ffcc00" stroke="#000" stroke-width="2"/>
-                </svg>
-            </div>
-        `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
+  map.on("dragstart", () => {
+    autoCentrar = false;
+    const btn = document.getElementById("btn-recentrar");
+    if (btn) btn.style.display = "block";
   });
 
-  // 3. Inicialización de Capas
-  prescriptionLayer = L.layerGroup().addTo(map); // Capa del mapa de prescripción (fondo)
-  coverageLayer = L.layerGroup().addTo(map); // Capa de aplicación histórica
-  pathLayer = L.layerGroup().addTo(map); // Capa de trabajo en vivo
-}
-
-export function actualizarTractor(lat, lon, heading, target, actual) {
-  if (!map || lat === 0 || lon === 0) return;
-
-  const currentPos = L.latLng(lat, lon);
-
-  // --- A. GESTIÓN DEL MARCADOR ---
-  if (!tractorMarker) {
-    tractorMarker = L.marker([lat, lon], { icon: tractorIcon }).addTo(map);
-    map.setView([lat, lon], 18);
-  } else {
-    tractorMarker.setLatLng(currentPos);
-  }
-
-  // --- B. SEGUIMIENTO Y ROTACIÓN ---
-  map.panTo(currentPos); // Centrado suave
-
-  const el = tractorMarker.getElement();
-  if (el) {
-    const rotator = el.querySelector("#tractor-rotator");
-    if (rotator) rotator.style.transform = `rotate(${heading}deg)`;
-  }
-
-  // --- C. MAPA DE APLICACIÓN (PINTADO) ---
-  // Pintamos solo si hay dosis objetivo y nos hemos movido al menos 0.5 metros
-  if (target > 0) {
-    if (!lastPaintedPos || currentPos.distanceTo(lastPaintedPos) > 0.5) {
-      pintarPuntoAplicacion(lat, lon, target, actual);
-      lastPaintedPos = currentPos;
-
-      // Opcional: Enviar al servidor para guardar LOG de aplicación
-      // guardarLogAplicacion(lat, lon, actual);
-    }
-  }
-}
-
-function pintarPuntoAplicacion(lat, lon, target, actual) {
-  const error = Math.abs(target - actual);
-  const errorPct = (error / target) * 100;
-
-  // Lógica de colores tipo semáforo
-  let color = "#00ff00"; // Verde: Aplicación perfecta
-  if (errorPct > 15)
-    color = "#ff0000"; // Rojo: Error crítico
-  else if (errorPct > 7) color = "#ffff00"; // Amarillo: Fuera de rango
-
-  // Usamos circleMarker para optimizar el renderizado de miles de puntos
-  L.circleMarker([lat, lon], {
-    radius: 4, // Esto se puede escalar según el ancho real de la máquina
-    color: color,
-    fillColor: color,
-    fillOpacity: 0.6,
-    stroke: false,
-    interactive: false, // Desactiva eventos para ganar velocidad
-  }).addTo(coverageLayer);
+  const centerControl = L.control({ position: "bottomleft" });
+  centerControl.onAdd = function () {
+    const div = L.DomUtil.create("div");
+    div.innerHTML = `<button id="btn-recentrar" class="btn btn-primary shadow-lg border-light" style="display:none; border-radius: 50%; width: 55px; height: 55px; font-size: 1.5rem;"><i class="fas fa-crosshairs"></i></button>`;
+    div.onclick = (e) => {
+      e.stopPropagation();
+      autoCentrar = true;
+      document.getElementById("btn-recentrar").style.display = "none";
+      if (tractorMarker)
+        map.setView(tractorMarker.getLatLng(), map.getZoom(), {
+          animate: true,
+        });
+    };
+    return div;
+  };
+  centerControl.addTo(map);
 }
 
 export function mostrarMapaEnPantalla(geojson) {
   if (!map || !geojson) return;
+  if (capaMapa) map.removeLayer(capaMapa);
 
-  // Limpiar prescripción anterior si existiera
-  prescriptionLayer.clearLayers();
-
-  const layer = L.geoJSON(geojson, {
-    style: function (feature) {
-      // Intentamos obtener el valor de la dosis para dar un color de fondo
-      const dosis =
-        feature.properties.SemillasxMetro ||
-        feature.properties.KilosxHectarea ||
-        0;
+  capaMapa = L.geoJSON(geojson, {
+    style: function () {
       return {
-        color: "#28a745",
+        color: "#ffcc00",
         weight: 1,
-        fillColor: dosis > 0 ? "#28a745" : "#444",
+        opacity: 0.8,
+        fillColor: "#ffcc00",
         fillOpacity: 0.15,
       };
     },
-    onEachFeature: (feature, layer) => {
-      // Popup con info de la zona al hacer clic
-      const p = feature.properties;
-      layer.bindPopup(
-        `<b>Zona: ${p.Name || "S/N"}</b><br>Dosis: ${p.SemillasxMetro || p.KilosxHectarea || 0}`,
-      );
-    },
-  }).addTo(prescriptionLayer);
-
-  const bounds = layer.getBounds();
-  if (bounds.isValid()) map.fitBounds(bounds);
+  }).addTo(map);
+  map.fitBounds(capaMapa.getBounds());
 }
 
+export function actualizarTractor(lat, lon, heading) {
+  if (!map) return;
+
+  // 1. Icono del Tractor (Triángulo puro sin flecha adentro)
+  const iconHtml = `<div style="transform: rotate(${heading}deg); width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 28px solid #ffcc00; filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.8));"></div>`;
+
+  if (!tractorMarker) {
+    tractorMarker = L.marker([lat, lon], {
+      icon: L.divIcon({
+        html: iconHtml,
+        className: "",
+        iconSize: [24, 28],
+        iconAnchor: [12, 14],
+      }),
+      zIndexOffset: 1000,
+    }).addTo(map);
+  } else {
+    tractorMarker.setLatLng([lat, lon]);
+    tractorMarker.setIcon(
+      L.divIcon({
+        html: iconHtml,
+        className: "",
+        iconSize: [24, 28],
+        iconAnchor: [12, 14],
+      }),
+    );
+  }
+
+  if (autoCentrar) map.setView([lat, lon], map.getZoom(), { animate: false });
+
+  dibujarImplementoEnMapa(lat, lon, heading);
+}
+
+// 2. FUNCIÓN PARA PINTAR LAS SECCIONES SIN ESPERAR AL GPS
 /**
- * Limpia el mapa de aplicación (cobertura) actual
+ * Actualiza visualmente el color de las secciones en el mapa con retardo independiente
  */
-export function limpiarCobertura() {
-  coverageLayer.clearLayers();
-  lastPaintedPos = null;
+export function actualizarColoresSecciones() {
+  // 1. Verificación de seguridad
+  if (!state.config || !state.config.implemento_activo) return;
+
+  const geo = state.config.implemento_activo.geometria;
+  const cantSecciones = geo.cantidad_secciones_aog || 4;
+
+  // 2. Obtenemos los estados desglosados (que guardamos previamente en app.js)
+  // Si por alguna razón no existen, usamos un array de ceros por defecto
+  const estadosT1 =
+    state.seccionesActivasT1 || new Array(cantSecciones).fill(0);
+  const estadosT2 =
+    state.seccionesActivasT2 || new Array(cantSecciones).fill(0);
+
+  // 3. Recorrer los polígonos del mapa
+  for (let i = 0; i < polySeccionesT1.length; i++) {
+    if (i >= cantSecciones) break;
+
+    // --- Lógica para el Tren 1 (Inmediato / Delantero) ---
+    const isActivaT1 = estadosT1[i] === 1;
+    const styleT1 = {
+      fillColor: isActivaT1 ? "#28a745" : "#444444",
+      fillOpacity: isActivaT1 ? 0.9 : 0.6,
+    };
+
+    if (polySeccionesT1[i]) {
+      polySeccionesT1[i].setStyle(styleT1);
+    }
+
+    // --- Lógica para el Tren 2 (Retardado / Trasero) ---
+    // Solo si la máquina es de doble tren y el polígono existe
+    if (geo.tipo_tren === "doble" && polySeccionesT2[i]) {
+      const isActivaT2 = estadosT2[i] === 1;
+      const styleT2 = {
+        fillColor: isActivaT2 ? "#28a745" : "#444444",
+        fillOpacity: isActivaT2 ? 0.9 : 0.6,
+      };
+
+      polySeccionesT2[i].setStyle(styleT2);
+    }
+  }
+}
+
+function dibujarImplementoEnMapa(lat, lon, heading) {
+  if (!state.config || !state.config.implemento_activo) return;
+
+  const geo = state.config.implemento_activo.geometria;
+  if (!geo || !geo.surcos_totales) return;
+
+  const seccionesAOG = geo.anchos_secciones_aog || [];
+  const cantSecciones = geo.cantidad_secciones_aog || seccionesAOG.length;
+  const estados = state.seccionesActivas || new Array(cantSecciones).fill(0);
+
+  const anchoTotalMetros = seccionesAOG.reduce((a, b) => a + b, 0) / 100;
+  const distTrenesMetros = geo.distancia_trenes_m || 1.5;
+  const esDoble = geo.tipo_tren === "doble";
+  const offsetEnganche = 4.0;
+
+  if (polySeccionesT1.length !== cantSecciones) {
+    polySeccionesT1.forEach((p) => map.removeLayer(p));
+    polySeccionesT2.forEach((p) => map.removeLayer(p));
+    polySeccionesT1 = [];
+    polySeccionesT2 = [];
+    for (let i = 0; i < cantSecciones; i++) {
+      polySeccionesT1.push(
+        L.polygon([], { color: "#000", weight: 1 }).addTo(map),
+      );
+      polySeccionesT2.push(
+        L.polygon([], { color: "#000", weight: 1 }).addTo(map),
+      );
+    }
+  }
+
+  const radHeading = (heading * Math.PI) / 180;
+  const offsetPunto = (lat, lon, offsetX, offsetY) => {
+    const latRad = (lat * Math.PI) / 180;
+    const R = 6378137;
+    const dLat =
+      (offsetY * Math.cos(radHeading) - offsetX * Math.sin(radHeading)) / R;
+    const dLon =
+      (offsetY * Math.sin(radHeading) + offsetX * Math.cos(radHeading)) /
+      (R * Math.cos(latRad));
+    return [lat + (dLat * 180) / Math.PI, lon + (dLon * 180) / Math.PI];
+  };
+
+  let currentLeftX = -anchoTotalMetros / 2;
+
+  for (let i = 0; i < cantSecciones; i++) {
+    const anchoSecMetros =
+      (seccionesAOG[i] || (anchoTotalMetros * 100) / cantSecciones) / 100;
+    const rightX = currentLeftX + anchoSecMetros;
+
+    const isActiva = estados[i] === 1;
+    const fillColor = isActiva ? "#28a745" : "#444444";
+    const fillOpacity = isActiva ? 0.9 : 0.6;
+
+    const t1_Izq = offsetPunto(lat, lon, currentLeftX, -offsetEnganche);
+    const t1_Der = offsetPunto(lat, lon, rightX, -offsetEnganche);
+    const t1_Der_back = offsetPunto(lat, lon, rightX, -(offsetEnganche + 0.3));
+    const t1_Izq_back = offsetPunto(
+      lat,
+      lon,
+      currentLeftX,
+      -(offsetEnganche + 0.3),
+    );
+
+    polySeccionesT1[i].setLatLngs([t1_Izq, t1_Der, t1_Der_back, t1_Izq_back]);
+    polySeccionesT1[i].setStyle({ fillColor, fillOpacity });
+
+    if (esDoble) {
+      const t2_Izq = offsetPunto(
+        lat,
+        lon,
+        currentLeftX,
+        -(offsetEnganche + distTrenesMetros),
+      );
+      const t2_Der = offsetPunto(
+        lat,
+        lon,
+        rightX,
+        -(offsetEnganche + distTrenesMetros),
+      );
+      const t2_Der_back = offsetPunto(
+        lat,
+        lon,
+        rightX,
+        -(offsetEnganche + distTrenesMetros + 0.3),
+      );
+      const t2_Izq_back = offsetPunto(
+        lat,
+        lon,
+        currentLeftX,
+        -(offsetEnganche + distTrenesMetros + 0.3),
+      );
+
+      polySeccionesT2[i].setLatLngs([t2_Izq, t2_Der, t2_Der_back, t2_Izq_back]);
+      polySeccionesT2[i].setStyle({ fillColor, fillOpacity, opacity: 1 });
+    } else {
+      polySeccionesT2[i].setStyle({ opacity: 0, fillOpacity: 0 });
+    }
+    currentLeftX = rightX + 0.05;
+  }
 }

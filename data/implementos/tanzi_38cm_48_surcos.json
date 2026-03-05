@@ -1,92 +1,39 @@
 {
   "implemento_activo": {
-    "id_modelo": "tanzi_96_doble",
-    "nombre": "Tanzi 96 Surcos (19cm) - Modelo Genérico",
+    "id_modelo": "tanzi_48_simple",
+    "nombre": "Tanzi 48 Surcos (38cm) - Modelo Genérico",
     "geometria": {
-      "surcos_totales": 96,
-      "separacion_cm": 19,
-      "tipo_tren": "doble",
+      "surcos_totales": 48,
+      "separacion_cm": 38,
+      "tipo_tren": "simple",
       "distancia_trenes_m": 1.5,
       "cantidad_secciones_aog": 4,
-      "anchos_secciones_aog": [
-        456,
-        456,
-        456,
-        456
-      ]
+      "anchos_secciones_aog": [456, 456, 456, 456]
     },
     "distribucion_mecanica": [
       {
         "id_nodo": "T1_SEM",
         "nombre": "Torre 1",
-        "tren": "trasero",
-        "surcos": [
-          1,
-          12
-        ]
+        "tren": "delantero",
+        "surcos": [1, 12]
       },
       {
         "id_nodo": "T2_SEM",
         "nombre": "Torre 2",
-        "tren": "trasero",
-        "surcos": [
-          13,
-          24
-        ]
+        "tren": "delantero",
+        "surcos": [13, 24]
       },
       {
         "id_nodo": "T3_SEM",
         "nombre": "Torre 3",
-        "tren": "trasero",
-        "surcos": [
-          25,
-          36
-        ]
+        "tren": "delantero",
+        "surcos": [25, 36]
       },
       {
         "id_nodo": "T4_SEM",
         "nombre": "Torre 4",
-        "tren": "trasero",
-        "surcos": [
-          37,
-          48
-        ]
-      },
-      {
-        "id_nodo": "T5_SEM",
-        "nombre": "Torre 5",
         "tren": "delantero",
-        "surcos": [
-          49,
-          60
-        ]
-      },
-      {
-        "id_nodo": "T6_SEM",
-        "nombre": "Torre 6",
-        "tren": "delantero",
-        "surcos": [
-          61,
-          72
-        ]
-      },
-      {
-        "id_nodo": "T7_SEM",
-        "nombre": "Torre 7",
-        "tren": "delantero",
-        "surcos": [
-          73,
-          84
-        ]
-      },
-      {
-        "id_nodo": "T8_SEM",
-        "nombre": "Torre 8",
-        "tren": "delantero",
-        "surcos": [
-          85,
-          96
-        ]
+        "surcos": [37, 48]
       }
     ]
   },
@@ -99,16 +46,16 @@
       "tren": 1,
       "seccionAOG": 0,
       "control_pid": {
-        "kp": 20,
-        "ki": 12,
+        "kp": 10.6,
+        "ki": 0.1,
         "kd": 0,
         "pid_time": 50,
         "max_integral": 4096
       },
       "active": true,
-      "meter_cal": 0.18,
+      "meter_cal": 1454.55,
       "calibracion": {
-        "pwm_min": 351,
+        "pwm_min": 338,
         "pwm_max": 3842
       },
       "configuracion_secciones": [
@@ -126,13 +73,13 @@
         },
         {
           "seccion_aog": 1,
-          "tipo": "trasero",
+          "tipo": "delantero",
           "surcos_inicio": 1,
           "surcos_fin": 12
         },
         {
           "seccion_aog": 3,
-          "tipo": "trasero",
+          "tipo": "delantero",
           "surcos_inicio": 25,
           "surcos_fin": 36
         }
@@ -158,9 +105,7 @@
         "pwm_min": 40,
         "pwm_max": 255
       },
-      "secciones_aog": [
-        1
-      ],
+      "secciones_aog": [1],
       "configuracion_secciones": [
         {
           "seccion_aog": 1,
@@ -190,22 +135,14 @@
     }
   ],
   "perfilActivo": "tanzi_48",
-  "anchosSecciones": [
-    9,
-    9
-  ],
+  "anchosSecciones": [9, 9],
   "implemento": {
     "cantidad_secciones_aog": 4,
-    "anchos_secciones_aog": [
-      456,
-      456,
-      456,
-      456
-    ],
+    "anchos_secciones_aog": [456, 456, 456, 456],
     "ancho_total": 18.24,
     "surcos_totales": 96,
     "distancia_trenes": 1.5,
     "tipo_tren": "doble"
   },
-  "nombre_perfil": "Tanzi 19cm 96 surcos"
+  "nombre_perfil": "Tanzi 38cm 48 surcos"
 }

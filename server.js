@@ -146,9 +146,17 @@ function enviarConfigMQTT(uid) {
     })),
   };
 
-  client.publish(`agp/quantix/${uid}/config`, JSON.stringify(payload), {
-    retain: true,
-  });
+  const topic = `agp/quantix/${uid}/config`;
+  const message = JSON.stringify(payload);
+
+  // --- LOG POR CONSOLA ---
+  console.log("------------------------------------------");
+  console.log(`📤 ENVIANDO CONFIGURACIÓN MQTT`);
+  console.log(`📍 Tópico: ${topic}`);
+  console.log(`📦 Mensaje: ${message}`);
+  console.log("------------------------------------------");
+
+  client.publish(topic, message, { retain: true });
 }
 
 // ========================================================
@@ -327,29 +335,51 @@ app.post("/api/config/delete-motor", (req, res) => {
 });
 
 // --- 5. TEST Y CALIBRACIÓN EN VIVO ---
+// --- 5. TEST Y CALIBRACIÓN EN VIVO ---
 app.post("/api/config/test-motor", (req, res) => {
   const { uid, idx, pwm, cmd } = req.body;
-  client.publish(
-    `agp/quantix/${uid}/test`,
-    JSON.stringify({ cmd: cmd || "start", pwm: pwm, id: idx }),
+
+  // TRADUCTOR: El frontend manda el 'id_logico' (1, 2, 3, 4...), pero la placa solo entiende 0 y 1.
+  const motor = memoriaEstado.motores.find(
+    (m) => m.uid_esp === uid && m.id_logico === idx,
   );
+  const internalId = motor ? motor.indice_interno : idx % 2 === 0 ? 1 : 0;
+
+  const topic = `agp/quantix/${uid}/test`;
+  const payload = { cmd: cmd || "start", pwm: pwm, id: internalId };
+
+  client.publish(topic, JSON.stringify(payload));
+  console.log(
+    `🔧 Test MQTT -> Topic: ${topic} | Motor Interno: ${internalId} | PWM: ${pwm}`,
+  );
+
   res.json({ status: "ok" });
 });
 
 app.post("/api/config/calibrar", (req, res) => {
   const { uid, idx, pwm, pulsos, cmd } = req.body;
-  client.publish(
-    `agp/quantix/${uid}/cal`,
-    JSON.stringify({
-      id: idx,
-      cmd: cmd || "stop",
-      pwm: pwm || 0,
-      pulsos: pulsos || 0,
-    }),
+
+  // TRADUCTOR: Traducimos el ID Lógico al Índice Interno (0 o 1)
+  const motor = memoriaEstado.motores.find(
+    (m) => m.uid_esp === uid && m.id_logico === idx,
   );
+  const internalId = motor ? motor.indice_interno : idx % 2 === 0 ? 1 : 0;
+
+  const topic = `agp/quantix/${uid}/cal`;
+  const payload = {
+    id: internalId,
+    cmd: cmd || "stop",
+    pwm: pwm || 0,
+    pulsos: pulsos || 0,
+  };
+
+  client.publish(topic, JSON.stringify(payload));
+  console.log(
+    `⚖️ Calibración MQTT -> Topic: ${topic} | Motor Interno: ${internalId} | Cmd: ${cmd}`,
+  );
+
   res.json({ status: "ok" });
 });
-
 // ========================================================
 // 🚜 SINCRONIZACIÓN CON PILOTO AUTOMÁTICO (AOG)
 // ========================================================

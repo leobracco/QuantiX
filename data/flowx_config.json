@@ -1,0 +1,12 @@
+{
+  "dosisManual": 35,
+  "modoManual": true,
+  "meterCal": 5,
+  "pwmMinimo": 25,
+  "pid": {
+    "kp": 1.2,
+    "ki": 0.4,
+    "kd": 0.05,
+    "deadband": 2
+  }
+}
