@@ -122,6 +122,10 @@ function guardarConfig() {
       JSON.stringify(memoriaEstado, null, 2),
       "utf8",
     );
+    // Notificación reactiva al Bridge para que no dependa solo del polling
+    if (client && client.connected) {
+      client.publish("agp/quantix/bridge/config_changed", JSON.stringify({ ts: Date.now() }));
+    }
   } catch (e) {
     console.error("❌ Error CRÍTICO guardando config:", e);
   }
@@ -199,6 +203,32 @@ app.use(express.static("public"));
 app.use("/api/gis", gisRoutes);
 app.use("/api/config", configRoutes);
 
+// --- FLOW CONFIG (incluye fuera_zona_modo y dosis_default) ---
+const FLOW_CONFIG_PATH = path.join(DATA_DIR, "flowx_config.json");
+
+app.get("/api/flow/config", (req, res) => {
+  let cfg = {};
+  if (fs.existsSync(FLOW_CONFIG_PATH)) {
+    try {
+      cfg = JSON.parse(fs.readFileSync(FLOW_CONFIG_PATH, "utf8"));
+    } catch (e) {}
+  }
+  res.json(cfg);
+});
+
+app.post("/api/flow/fallback", (req, res) => {
+  const { fuera_zona_modo, dosis_default } = req.body;
+  const permitidos = ["ultima", "cero", "default"];
+  if (!permitidos.includes(fuera_zona_modo)) {
+    return res.status(400).json({ error: "fuera_zona_modo inválido" });
+  }
+  // Publicamos por MQTT al Bridge, que es el único dueño de flowx_config.json
+  const payload = { fuera_zona_modo };
+  if (dosis_default) payload.dosis_default = dosis_default;
+  client.publish("agp/flow/config_save", JSON.stringify(payload));
+  res.json({ status: "ok" });
+});
+
 // --- 1. ESTADO DEL SISTEMA ---
 app.get("/api/estado-sistema", (req, res) => {
   let mapa = null;
@@ -241,12 +271,14 @@ app.post("/api/config/asignar", (req, res) => {
       indice_interno: 0,
       id_logico: nro * 2 - 1,
       nombre: `Semilla M${nro}`,
+      producto: "semilla",
     },
     {
       ...baseMotor,
       indice_interno: 1,
       id_logico: nro * 2,
       nombre: `Ferti M${nro}`,
+      producto: "ferti",
     },
   );
 

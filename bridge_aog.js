@@ -35,7 +35,57 @@ let flowConfig = {
   meterCal: 1,
   pwmMinimo: 0,
   pid: { kp: 0.1, ki: 0.0, kd: 0.0 },
+  // Fase C: fallback fuera de zona
+  fuera_zona_modo: "cero", // "ultima" | "cero" | "default"
+  dosis_default: { semilla: { valor: 0, unidad: "sem_m" }, ferti: { valor: 0, unidad: "kg_ha" } },
 };
+
+// Fase C: estado en memoria de la última dosis conocida por producto
+const ultimaDosisConocida = { semilla: null, ferti: null };
+
+// Fase B: convierte un rate + unidad a PPS (pulsos/segundo) del motor
+// ratePerMeter es la unidad común: ítems por metro lineal de avance del motor
+function rateToPPS(rate, unidad, v_ms, sep_m, meter_cal) {
+  if (!rate || rate <= 0 || v_ms <= 0 || !meter_cal || meter_cal <= 0) return 0;
+  let ratePerMeter;
+  switch (unidad) {
+    case "sem_m":   ratePerMeter = rate; break;
+    case "sem_10m": ratePerMeter = rate / 10; break;
+    case "kg_m":    ratePerMeter = rate; break;
+    case "kg_ha":   ratePerMeter = (rate * sep_m) / 10000; break;
+    default: return 0;
+  }
+  return (ratePerMeter * v_ms) / meter_cal;
+}
+
+// Retro-compat: si el motor no declara producto, lo inferimos por el nombre
+function productoDeMotor(motor) {
+  if (motor.producto === "semilla" || motor.producto === "ferti") return motor.producto;
+  const n = (motor.nombre || "").toLowerCase();
+  if (n.includes("ferti")) return "ferti";
+  return "semilla";
+}
+
+// Fase B+C: resuelve la dosis a aplicar para un motor dado, considerando el mapa y el fallback
+function resolverDosis(zona, motor) {
+  const producto = productoDeMotor(motor);
+  const dosisZona = zona?.properties?.dosis?.[producto];
+
+  if (dosisZona && dosisZona.valor > 0) {
+    ultimaDosisConocida[producto] = dosisZona;
+    return dosisZona;
+  }
+
+  switch (flowConfig.fuera_zona_modo) {
+    case "ultima":
+      return ultimaDosisConocida[producto] || { valor: 0, unidad: "sem_m" };
+    case "default":
+      return flowConfig.dosis_default?.[producto] || { valor: 0, unidad: "sem_m" };
+    case "cero":
+    default:
+      return { valor: 0, unidad: "sem_m" };
+  }
+}
 
 if (fs.existsSync(FLOW_CONFIG_PATH)) {
   try {
@@ -95,6 +145,7 @@ mqttClient.on("connect", () => {
   console.log("🚀 BridgeX: MQTT Conectado.");
   mqttClient.subscribe("agp/flow/ui_cmd");
   mqttClient.subscribe("agp/flow/config_save");
+  mqttClient.subscribe("agp/quantix/bridge/config_changed");
 });
 
 mqttClient.on("message", (topic, message) => {
@@ -108,6 +159,10 @@ mqttClient.on("message", (topic, message) => {
     if (topic === "agp/flow/config_save") {
       flowConfig = { ...flowConfig, ...data };
       saveFlowConfig();
+    }
+    if (topic === "agp/quantix/bridge/config_changed") {
+      // Sync reactiva: el servidor avisa que cambió la config
+      sincronizarConfig();
     }
   } catch (e) {
     console.error("❌ Bridge: Error MQTT", topic);
@@ -147,10 +202,24 @@ function calcularYEnviarTargetFlow() {
     }
   }
 
-  const dosisTarget =
-    flowConfig.modoManual || !mapaPrescripcion
-      ? flowConfig.dosisManual
-      : obtenerDosisMapa(latitud, longitud);
+  let dosisTarget;
+  if (flowConfig.modoManual || !mapaPrescripcion) {
+    dosisTarget = flowConfig.dosisManual;
+  } else {
+    const zona = obtenerZonaMapa(latitud, longitud);
+    // Flow control usa por defecto la dosis del producto "ferti" del mapa
+    const dosisZona = zona?.properties?.dosis?.ferti;
+    if (dosisZona && dosisZona.valor > 0) {
+      ultimaDosisConocida.ferti = dosisZona;
+      dosisTarget = dosisZona.valor;
+    } else if (flowConfig.fuera_zona_modo === "ultima" && ultimaDosisConocida.ferti) {
+      dosisTarget = ultimaDosisConocida.ferti.valor;
+    } else if (flowConfig.fuera_zona_modo === "default") {
+      dosisTarget = flowConfig.dosis_default?.ferti?.valor || 0;
+    } else {
+      dosisTarget = 0;
+    }
+  }
 
   let lminTarget =
     velocidadActual > 0.5 && anchoActivoM > 0
@@ -186,8 +255,7 @@ async function procesarDosisQuantiX(lat, lon) {
   )
     return;
 
-  let dosisBase = obtenerDosisMapa(lat, lon);
-
+  const zona = obtenerZonaMapa(lat, lon);
   const m_s = velocidadActual > 0.5 ? velocidadActual / 3.6 : 0;
   const separacion_m =
     (configImplemento.implemento_activo?.geometria?.separacion_cm || 19) / 100;
@@ -202,11 +270,10 @@ async function procesarDosisQuantiX(lat, lon) {
     });
 
     let ppsTarget = 0;
-    if (motorDebeGirar && dosisBase > 0 && m_s > 0) {
+    if (motorDebeGirar && m_s > 0) {
+      const dosis = resolverDosis(zona, motor);
       const cpReal = parseFloat(motor.meter_cal) || 1.0;
-      const factorDosis =
-        dosisBase > 500 ? (dosisBase * separacion_m) / 10000 : dosisBase;
-      ppsTarget = (factorDosis * m_s) / cpReal;
+      ppsTarget = rateToPPS(dosis.valor, dosis.unidad, m_s, separacion_m, cpReal);
     }
 
     mqttClient.publish(
@@ -220,19 +287,33 @@ async function procesarDosisQuantiX(lat, lon) {
   });
 }
 
-function obtenerDosisMapa(lat, lon) {
-  if (!mapaPrescripcion || lat === 0) return 0;
+// Devuelve el feature completo de la zona donde está el tractor, o null si está fuera
+function obtenerZonaMapa(lat, lon) {
+  if (!mapaPrescripcion || lat === 0) return null;
   try {
     const punto = turf.point([lon, lat]);
     for (const f of mapaPrescripcion.features) {
       if (turf.booleanPointInPolygon(punto, f)) {
-        return (
-          parseFloat(f.properties.Rate || f.properties.SemillasxMetro) || 0
-        );
+        // Retro-compat: si el mapa viejo solo tiene SemillasxMetro/KilosxHectarea, armamos dosis
+        if (!f.properties.dosis) {
+          const sem = parseFloat(f.properties.SemillasxMetro || f.properties.Rate) || 0;
+          const kg = parseFloat(f.properties.KilosxHectarea) || 0;
+          return {
+            ...f,
+            properties: {
+              ...f.properties,
+              dosis: {
+                semilla: { valor: sem, unidad: "sem_m" },
+                ferti:   { valor: kg,  unidad: "kg_ha" },
+              },
+            },
+          };
+        }
+        return f;
       }
     }
   } catch (e) {}
-  return 0;
+  return null;
 }
 
 function ejecutarCalculosModulares() {

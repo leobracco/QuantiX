@@ -200,29 +200,65 @@ async function subirArchivosAlServer() {
   }
 }
 
-// Esta función es necesaria para que el usuario elija qué columna es la dosis
+// Renderiza selectores duales (semilla + ferti) con columna y unidad por producto
 function renderMappingSelectors(columnas, tempFiles) {
-  const area = document.getElementById("mapping-area"); // Asegúrate que este ID exista en tu HTML
+  const area = document.getElementById("mapping-area");
+  const opts = ["<option value=\"\">(ninguno)</option>"]
+    .concat(columnas.map((c) => `<option value="${c}">${c}</option>`))
+    .join("");
+  const unidadOpts = `
+    <option value="sem_m">Semillas/metro</option>
+    <option value="sem_10m">Semillas/10 metros</option>
+    <option value="kg_ha">Kg/hectárea</option>
+    <option value="kg_m">Kg/metro</option>
+  `;
   area.innerHTML = `
-        <select id="select-dosis" class="form-select bg-dark text-white mb-2">
-            ${columnas.map((c) => `<option value="${c}">${c}</option>`).join("")}
-        </select>
-        <button class="btn btn-success w-100" onclick="confirmarMapeo('${tempFiles.shp}', '${tempFiles.dbf}')">
-            Confirmar Mapeo
-        </button>
-    `;
+    <div class="card bg-dark text-white border-secondary p-2 mb-2">
+      <label class="small text-warning fw-bold mb-1">Semilla</label>
+      <select id="select-col-semilla" class="form-select form-select-sm bg-secondary text-white border-secondary mb-1">${opts}</select>
+      <select id="select-unidad-semilla" class="form-select form-select-sm bg-secondary text-white border-secondary">
+        <option value="sem_m" selected>Semillas/metro</option>
+        <option value="sem_10m">Semillas/10 metros</option>
+        <option value="kg_ha">Kg/hectárea</option>
+        <option value="kg_m">Kg/metro</option>
+      </select>
+    </div>
+    <div class="card bg-dark text-white border-secondary p-2 mb-2">
+      <label class="small text-warning fw-bold mb-1">Fertilizante</label>
+      <select id="select-col-ferti" class="form-select form-select-sm bg-secondary text-white border-secondary mb-1">${opts}</select>
+      <select id="select-unidad-ferti" class="form-select form-select-sm bg-secondary text-white border-secondary">
+        <option value="sem_m">Semillas/metro</option>
+        <option value="sem_10m">Semillas/10 metros</option>
+        <option value="kg_ha" selected>Kg/hectárea</option>
+        <option value="kg_m">Kg/metro</option>
+      </select>
+    </div>
+    <button class="btn btn-success w-100" onclick="confirmarMapeo('${tempFiles.shp}', '${tempFiles.dbf}')">
+      Confirmar Mapeo
+    </button>
+  `;
   area.style.display = "block";
 }
 
 window.confirmarMapeo = async (shp, dbf) => {
-  const col = document.getElementById("select-dosis").value;
-  const res = await fetch("http://localhost:8080/api/confirmar-mapa", {
+  const colSem = document.getElementById("select-col-semilla").value;
+  const uniSem = document.getElementById("select-unidad-semilla").value;
+  const colFerti = document.getElementById("select-col-ferti").value;
+  const uniFerti = document.getElementById("select-unidad-ferti").value;
+
+  const mapping = {};
+  if (colSem) mapping.semilla = { col: colSem, unidad: uniSem };
+  if (colFerti) mapping.ferti = { col: colFerti, unidad: uniFerti };
+
+  if (!mapping.semilla && !mapping.ferti) {
+    alert("Elegí al menos una columna de dosis.");
+    return;
+  }
+
+  const res = await fetch("/api/gis/confirmar-mapa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tempFiles: { shp, dbf },
-      mapping: { SemillasxMetro: col },
-    }),
+    body: JSON.stringify({ tempFiles: { shp, dbf }, mapping }),
   });
   const geojson = await res.json();
   MapEngine.mostrarMapaEnPantalla(geojson);
@@ -380,6 +416,69 @@ window.aceptarCambiosPiloto = async () => {
     alertaIgnorada = false;
   }
 };
+// Configuración de comportamiento fuera de zona
+async function cargarFueraZonaUI() {
+  try {
+    const res = await fetch("/api/flow/config");
+    const cfg = await res.json();
+    const selMode = document.getElementById("select-fuera-zona-modo");
+    if (selMode) selMode.value = cfg.fuera_zona_modo || "cero";
+
+    const defaults = cfg.dosis_default || {};
+    const sem = defaults.semilla || { valor: 0, unidad: "sem_m" };
+    const fer = defaults.ferti || { valor: 0, unidad: "kg_ha" };
+    const $ = (id) => document.getElementById(id);
+    if ($("fuera-zona-default-sem")) $("fuera-zona-default-sem").value = sem.valor ?? 0;
+    if ($("fuera-zona-default-sem-unidad")) $("fuera-zona-default-sem-unidad").value = sem.unidad || "sem_m";
+    if ($("fuera-zona-default-fer")) $("fuera-zona-default-fer").value = fer.valor ?? 0;
+    if ($("fuera-zona-default-fer-unidad")) $("fuera-zona-default-fer-unidad").value = fer.unidad || "kg_ha";
+
+    actualizarVisibilidadDefaultFueraZona();
+  } catch (e) {
+    console.error("No se pudo cargar config fuera-de-zona", e);
+  }
+}
+
+function actualizarVisibilidadDefaultFueraZona() {
+  const sel = document.getElementById("select-fuera-zona-modo");
+  const div = document.getElementById("fuera-zona-default");
+  if (!sel || !div) return;
+  div.style.display = sel.value === "default" ? "block" : "none";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  cargarFueraZonaUI();
+  const sel = document.getElementById("select-fuera-zona-modo");
+  if (sel) sel.addEventListener("change", actualizarVisibilidadDefaultFueraZona);
+});
+
+window.guardarFueraZona = async () => {
+  const modo = document.getElementById("select-fuera-zona-modo").value;
+  const payload = { fuera_zona_modo: modo };
+  if (modo === "default") {
+    payload.dosis_default = {
+      semilla: {
+        valor: parseFloat(document.getElementById("fuera-zona-default-sem").value) || 0,
+        unidad: document.getElementById("fuera-zona-default-sem-unidad").value,
+      },
+      ferti: {
+        valor: parseFloat(document.getElementById("fuera-zona-default-fer").value) || 0,
+        unidad: document.getElementById("fuera-zona-default-fer-unidad").value,
+      },
+    };
+  }
+  const res = await fetch("/api/flow/fallback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (res.ok) {
+    alert("Comportamiento guardado.");
+  } else {
+    alert("Error al guardar.");
+  }
+};
+
 // Activar/Desactivar Dosis Manual desde la UI
 window.toggleDosisManual = async () => {
   const valorInput = document.getElementById("val-manual").value;

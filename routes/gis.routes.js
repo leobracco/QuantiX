@@ -28,20 +28,46 @@ router.post('/get-columns', upload.fields([{ name: 'shp' }, { name: 'dbf' }]), a
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Confirmar y normalizar mapa
+const UNIDADES_VALIDAS = new Set(['sem_m', 'sem_10m', 'kg_ha', 'kg_m']);
+
+function normalizarEntradaProducto(entrada) {
+    if (!entrada || !entrada.col) return null;
+    const unidad = UNIDADES_VALIDAS.has(entrada.unidad) ? entrada.unidad : 'sem_m';
+    return { col: entrada.col, unidad };
+}
+
+// Confirmar y normalizar mapa (soporta mapping dual con unidades)
 router.post('/confirmar-mapa', async (req, res) => {
     const { tempFiles, mapping } = req.body;
     try {
+        // Retro-compat: { SemillasxMetro: "col" } / { KilosxHectarea: "col" }
+        // Nuevo:        { semilla: { col, unidad }, ferti: { col, unidad } }
+        const mSemilla = mapping.semilla
+            ? normalizarEntradaProducto(mapping.semilla)
+            : (mapping.SemillasxMetro ? { col: mapping.SemillasxMetro, unidad: 'sem_m' } : null);
+        const mFerti = mapping.ferti
+            ? normalizarEntradaProducto(mapping.ferti)
+            : (mapping.KilosxHectarea ? { col: mapping.KilosxHectarea, unidad: 'kg_ha' } : null);
+
         const data = await shapefile.read(tempFiles.shp, tempFiles.dbf);
-        data.features = data.features.map(f => ({
-            type: "Feature",
-            geometry: f.geometry,
-            properties: {
-                Name: f.properties.Name || f.properties.ID || "Zona",
-                SemillasxMetro: parseFloat(f.properties[mapping.SemillasxMetro]) || 0,
-                KilosxHectarea: parseFloat(f.properties[mapping.KilosxHectarea]) || 0
-            }
-        }));
+        data.features = data.features.map(f => {
+            const semillaVal = mSemilla ? (parseFloat(f.properties[mSemilla.col]) || 0) : 0;
+            const fertiVal = mFerti ? (parseFloat(f.properties[mFerti.col]) || 0) : 0;
+            return {
+                type: "Feature",
+                geometry: f.geometry,
+                properties: {
+                    Name: f.properties.Name || f.properties.ID || "Zona",
+                    dosis: {
+                        semilla: { valor: semillaVal, unidad: mSemilla?.unidad || 'sem_m' },
+                        ferti:   { valor: fertiVal,   unidad: mFerti?.unidad   || 'kg_ha' }
+                    },
+                    // Retro-compat: mantenemos los campos viejos para consumidores legacy
+                    SemillasxMetro: mSemilla?.unidad === 'sem_m' ? semillaVal : 0,
+                    KilosxHectarea: mFerti?.unidad === 'kg_ha' ? fertiVal : 0
+                }
+            };
+        });
         fs.writeFileSync(MAPA_PERSISTENTE, JSON.stringify(data));
         res.json(data);
         // Limpieza de temporales
